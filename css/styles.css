@@ -629,6 +629,8 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
+  /* 確保內容超出時可捲動，最大高度由 flex 自動計算 */
+  max-height: 100%;
 }
 
 /* 美化滾動條 */

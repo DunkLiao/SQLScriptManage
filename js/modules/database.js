@@ -172,8 +172,8 @@ class DatabaseManager {
 
       request.onsuccess = () => {
         const versions = request.result;
-        // 按時間戳排序
-        versions.sort((a, b) => a.timestamp - b.timestamp);
+        // 按時間戳降序排序（最新在上）
+        versions.sort((a, b) => b.timestamp - a.timestamp);
         resolve(versions);
       };
       request.onerror = () => reject(request.error);
