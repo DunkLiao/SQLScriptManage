@@ -613,9 +613,36 @@ body {
 }
 
 .version-tree {
-  flex: 1;
+  max-height: calc(100vh - 400px);
+  min-height: 300px;
   overflow-y: auto;
-  padding: 0;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+
+/* 美化滾動條 */
+.version-tree::-webkit-scrollbar {
+  width: 8px;
+}
+
+.version-tree::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.version-tree::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.version-tree::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Firefox 滾動條樣式 */
+.version-tree {
+  scrollbar-width: thin;
+  scrollbar-color: #888 #f1f1f1;
 }
 
 .version-item {
