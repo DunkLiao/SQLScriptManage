@@ -139,6 +139,15 @@ class SQLVersionApp {
       document.getElementById('conflictModal').style.display = 'none';
     });
     document.getElementById('btnConfirmImport').addEventListener('click', () => this.confirmImport());
+
+    // 差異面板關閉
+    const btnCloseDiff = document.getElementById('btnCloseDiff');
+    if (btnCloseDiff) {
+      btnCloseDiff.addEventListener('click', () => {
+        document.getElementById('diffPanel').style.display = 'none';
+        document.getElementById('diffContent').innerHTML = '';
+      });
+    }
   }
 
   /**
@@ -320,8 +329,9 @@ class SQLVersionApp {
     const label = document.getElementById('newLabel').value.trim();
     const description = document.getElementById('newDescription').value.trim();
     const author = document.getElementById('newAuthor').value.trim();
+    const sqlRaw = document.getElementById('sqlEditor').value;
     const createSnapshot = document.getElementById('createSnapshot').checked;
-    const sql = document.getElementById('sqlEditor').value.trim();
+    const sql = sqlRaw.trim();
 
     if (!label) {
       alert('請輸入版本標籤');
@@ -344,7 +354,7 @@ class SQLVersionApp {
 
       // 保存版本
       const version = await this.versionManager.saveVersion(
-        sql,
+        sqlRaw,
         label,
         description,
         author,
@@ -416,16 +426,12 @@ class SQLVersionApp {
     }
 
     try {
-      const comparison = await this.versionManager.compareVersions(from, to);
+      // 導向獨立差異頁面，避免在主頁擁擠
+      const url = `diff.html?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+      window.open(url, '_blank');
 
       // 關閉比對對話框
       document.getElementById('compareModal').style.display = 'none';
-
-      // 渲染 Diff 查看器
-      this.renderDiffViewer(comparison);
-
-      // 展開 Diff 面板
-      document.getElementById('diffPanel').style.display = 'block';
     } catch (error) {
       alert('比對失敗：' + error.message);
     }
@@ -436,6 +442,7 @@ class SQLVersionApp {
    */
   renderDiffViewer(comparison) {
     const diffContent = document.getElementById('diffContent');
+    const hasDiff = Array.isArray(comparison.lineDiffs) && comparison.lineDiffs.length > 0;
     
     let html = `
       <div class="diff-viewer">
@@ -458,31 +465,41 @@ class SQLVersionApp {
             <tbody>
     `;
 
-    let lineNum = 1;
-    for (const [op, content] of comparison.lineDiffs) {
-      let className = '';
-      let marker = '';
-
-      if (op === 1) {
-        className = 'diff-added';
-        marker = '+';
-      } else if (op === -1) {
-        className = 'diff-removed';
-        marker = '-';
-      } else {
-        className = 'diff-unchanged';
-        marker = ' ';
-      }
-
-      const escapedContent = this.escapeHtml(content);
+    if (!hasDiff) {
       html += `
-        <tr class="${className}">
-          <td class="line-number">${lineNum}</td>
+        <tr class="diff-unchanged">
+          <td class="line-number">-</td>
           <td class="line-marker"></td>
-          <td class="line-content"><code>${escapedContent}</code></td>
+          <td class="line-content"><code>兩個版本內容相同，沒有差異。</code></td>
         </tr>
       `;
-      lineNum++;
+    } else {
+      let lineNum = 1;
+      for (const [op, content] of comparison.lineDiffs) {
+        let className = '';
+        let marker = '';
+
+        if (op === 1) {
+          className = 'diff-added';
+          marker = '+';
+        } else if (op === -1) {
+          className = 'diff-removed';
+          marker = '-';
+        } else {
+          className = 'diff-unchanged';
+          marker = ' ';
+        }
+
+        const escapedContent = this.escapeHtml(content);
+        html += `
+          <tr class="${className}">
+            <td class="line-number">${lineNum}</td>
+            <td class="line-marker" data-marker="${marker}"></td>
+            <td class="line-content"><code>${escapedContent}</code></td>
+          </tr>
+        `;
+        lineNum++;
+      }
     }
 
     html += `

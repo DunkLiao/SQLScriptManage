@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SQL 版本差異檢視</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/diff.css" />
+</head>
+<body>
+  <header class="diff-navbar">
+    <div class="left-group">
+      <a class="btn btn-ghost" href="index.html">← 返回主頁</a>
+      <button class="btn btn-secondary" id="btnReload">重新選擇版本</button>
+    </div>
+    <div class="right-group">
+      <label class="toggle">
+        <input type="checkbox" id="toggleWhitespace" />
+        <span>忽略空白差異</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="toggleCase" />
+        <span>忽略大小寫</span>
+      </label>
+      <button class="btn btn-primary" id="btnExport">匯出比對 JSON</button>
+    </div>
+  </header>
+
+  <main class="diff-page">
+    <section class="summary-panel">
+      <div class="version-meta" id="metaFrom"></div>
+      <div class="version-meta" id="metaTo"></div>
+      <div class="stats" id="diffStats"></div>
+    </section>
+
+    <section class="diff-body" id="diffBody">
+      <div class="loading" id="loading">載入中...</div>
+      <div class="diff-table-wrap" id="diffTableWrap" hidden>
+        <table class="diff-table">
+          <tbody id="diffTable"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="emptyState" hidden>兩個版本內容相同，沒有差異。</div>
+      <div class="error" id="errorState" hidden></div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/diff-match-patch@1.0.5/index.js"></script>
+  <script src="js/modules/database.js"></script>
+  <script src="js/modules/diffEngine.js"></script>
+  <script src="js/modules/versionManager.js"></script>
+  <script src="js/diffPage.js"></script>
+</body>
+</html>

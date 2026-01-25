@@ -701,7 +701,7 @@ body {
 }
 
 .card-diff .card-body {
-  max-height: 350px;
+  max-height: 60vh;
   overflow-y: auto;
 }
 
@@ -757,7 +757,7 @@ body {
 
 .diff-content {
   overflow-x: auto;
-  max-height: 300px;
+  max-height: 55vh;
   overflow-y: auto;
 }
 
@@ -824,6 +824,10 @@ body {
   width: 20px;
   text-align: center;
   font-weight: bold;
+}
+
+.diff-table .line-marker::before {
+  content: attr(data-marker);
 }
 
 .diff-table .line-content {

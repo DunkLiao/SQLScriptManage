@@ -23,17 +23,12 @@ class SQLDiffEngine {
    */
   normalizeSql(sql) {
     if (!sql) return '';
-
+    // 保留縮排與空行，僅統一換行符並移除行尾多餘空白，避免比對結果被過度「洗白」而遺漏內容
     return sql
-      // 1. 分行處理
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
       .split('\n')
-      // 2. 去除行首尾空白
-      .map(line => line.trim())
-      // 3. 去除空行
-      .filter(line => line.length > 0)
-      // 4. 規範化多個空白為單一空白
-      .map(line => line.replace(/\s+/g, ' '))
-      // 5. 重新加入換行符
+      .map(line => line.replace(/\s+$/, ''))
       .join('\n');
   }
 
@@ -56,64 +51,28 @@ class SQLDiffEngine {
     const normalizedOld = this._normalizeSql(oldSQL);
     const normalizedNew = this._normalizeSql(newSQL);
 
-    // 執行 Myers diff（返回字符級別的差異）
-    const diffs = this.dmp.diff_main(normalizedOld, normalizedNew);
+    // 先做行級壓縮，再運行 diff，可避免長檔案造成的空結果或截斷
+    const { chars1, chars2, lineArray } = this.dmp.diff_linesToChars_(normalizedOld, normalizedNew);
+    let diffs = this.dmp.diff_main(chars1, chars2, false);
+    this.dmp.diff_charsToLines_(diffs, lineArray);
 
     // 清理差異
     this.dmp.diff_cleanupSemantic(diffs);
-    this.dmp.diff_cleanupEfficiency(diffs);
 
-    // 轉換為行級別差異
-    const lineDiffs = this._convertToLineDiffs(diffs);
+    // 轉換為行級別差異（去除尾端空行）
+    const lineDiffs = [];
+    for (const [op, text] of diffs) {
+      const lines = text.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (i === lines.length - 1 && lines[i] === '') continue;
+        lineDiffs.push([op, lines[i]]);
+      }
+    }
 
     // 計算統計信息
     const stats = this._calculateStats(lineDiffs);
 
     return { lineDiffs, stats };
-  }
-
-  /**
-   * 將字符級差異轉換為行級差異
-   * diff 格式：[[操作碼, 內容], ...]
-   * 操作碼：-1=刪除, 0=不變, 1=插入
-   */
-  _convertToLineDiffs(charDiffs) {
-    const lineDiffs = [];
-    let currentLine = '';
-    let currentOp = null;  // 追蹤當前行的操作碼
-
-    for (const [op, text] of charDiffs) {
-      const lines = text.split('\n');
-
-      for (let i = 0; i < lines.length; i++) {
-        const part = lines[i];
-
-        // 如果操作碼改變，先保存前一行
-        if (currentOp !== null && currentOp !== op && currentLine) {
-          lineDiffs.push([currentOp, currentLine]);
-          currentLine = '';
-        }
-
-        currentLine += part;
-        currentOp = op;
-
-        // 遇到換行符（除了最後一行），保存當前行
-        if (i < lines.length - 1) {
-          if (currentLine) {
-            lineDiffs.push([op, currentLine]);
-          }
-          currentLine = '';
-          currentOp = null;
-        }
-      }
-    }
-
-    // 保存最後一行
-    if (currentLine && currentOp !== null) {
-      lineDiffs.push([currentOp, currentLine]);
-    }
-
-    return lineDiffs;
   }
 
   /**
