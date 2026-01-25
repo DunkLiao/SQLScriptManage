@@ -7,8 +7,10 @@ class SQLVersionApp {
     this.db = null;
     this.versionManager = null;
     this.importExportManager = null;
+    this.projectManager = null;  // v3 新增：專案管理器
     this.currentVersion = null;
     this.selectedVersionId = null;
+    this.pendingImportData = null;  // v3 新增：待導入的數據
   }
 
   /**
@@ -34,6 +36,9 @@ class SQLVersionApp {
       if (typeof importExportManager === 'undefined') {
         throw new Error('importExportManager 模塊未加載');
       }
+      if (typeof projectManager === 'undefined') {
+        throw new Error('projectManager 模塊未加載');
+      }
       
       console.log('✓ 所有依賴模塊已成功加載');
 
@@ -43,15 +48,21 @@ class SQLVersionApp {
       this.db = db;
       console.log('✓ 數據庫初始化完成');
 
-      // 初始化版本管理器
+      // v3 新增：初始化專案管理器（必須在版本管理器之前）
+      console.log('正在初始化專案管理器...');
+      await projectManager.init(db);
+      this.projectManager = projectManager;
+      console.log('✓ 專案管理器初始化完成');
+
+      // 初始化版本管理器（傳入 projectManager）
       console.log('正在初始化版本管理器...');
-      await versionManager.init(db, diffEngine);
+      await versionManager.init(db, diffEngine, projectManager);
       this.versionManager = versionManager;
       console.log('✓ 版本管理器初始化完成');
 
-      // 初始化導入導出管理器
+      // 初始化導入導出管理器（傳入 projectManager）
       console.log('正在初始化導入導出管理器...');
-      await importExportManager.init(db, versionManager, diffEngine);
+      await importExportManager.init(db, versionManager, diffEngine, projectManager);
       this.importExportManager = importExportManager;
       console.log('✓ 導入導出管理器初始化完成');
 
@@ -64,6 +75,10 @@ class SQLVersionApp {
       console.log('正在加載版本列表...');
       await this.loadVersionTree();
       console.log('✓ 版本列表加載完成');
+
+      // v3 新增：初始化專案選擇器
+      await this.updateProjectSelector();
+      console.log('✓ 專案選擇器初始化完成');
 
       console.log('✅ 應用初始化完成！');
       this.showInitializationStatus('success');
@@ -111,6 +126,17 @@ class SQLVersionApp {
     document.getElementById('btnNewVersion').addEventListener('click', () => this.showSaveVersionDialog());
     document.getElementById('btnExport').addEventListener('click', () => this.showExportDialog());
     document.getElementById('btnImport').addEventListener('click', () => this.showImportDialog());
+
+    // v3 新增：專案管理事件監聽
+    const projectSelector = document.getElementById('projectSelector');
+    if (projectSelector) {
+      projectSelector.addEventListener('change', (e) => this.switchProject(e.target.value));
+    }
+
+    const btnNewProject = document.getElementById('btnNewProject');
+    if (btnNewProject) {
+      btnNewProject.addEventListener('click', () => this.showCreateProjectDialog());
+    }
 
     // 初始化狀態指示器 - 點擊重新初始化
     const initStatus = document.getElementById('initStatus');
@@ -233,6 +259,14 @@ class SQLVersionApp {
       document.getElementById('clearAllModal').style.display = 'none';
     });
     document.getElementById('btnConfirmClearAll').addEventListener('click', () => this.confirmClearAllData());
+
+    // v3 新增：導入目標專案選擇對話框（備用關閉按鈕）
+    const btnCloseImportProject = document.getElementById('btnCloseImportProject');
+    if (btnCloseImportProject) {
+      btnCloseImportProject.addEventListener('click', () => {
+        document.getElementById('importProjectModal').style.display = 'none';
+      });
+    }
   }
 
   /**
@@ -748,6 +782,24 @@ class SQLVersionApp {
    * 顯示導出對話框
    */
   showExportDialog() {
+    // v3 新增：初始化導出專案選擇器
+    const exportProjectSelect = document.getElementById('exportProjectSelect');
+    if (exportProjectSelect) {
+      const projects = this.projectManager.getProjects();
+      const currentProjectId = this.projectManager.getCurrentProjectId();
+      
+      exportProjectSelect.innerHTML = '';
+      for (const project of projects) {
+        const option = document.createElement('option');
+        option.value = project.projectId;
+        option.textContent = project.projectName;
+        if (project.projectId === currentProjectId) {
+          option.selected = true;
+        }
+        exportProjectSelect.appendChild(option);
+      }
+    }
+    
     document.getElementById('exportModal').style.display = 'flex';
   }
 
@@ -758,9 +810,14 @@ class SQLVersionApp {
     try {
       const includeTags = document.getElementById('exportTags').checked;
       const includeComments = document.getElementById('exportComments').checked;
+      // v3 新增：獲取選定的專案
+      const exportProjectSelect = document.getElementById('exportProjectSelect');
+      const projectId = exportProjectSelect ? exportProjectSelect.value : null;
+
       const { jsonContent, filename } = await this.importExportManager.exportToJSON({
         includeTags,
-        includeComments
+        includeComments,
+        projectId
       });
 
       this.importExportManager.downloadFile(jsonContent, `${filename}.json`, 'application/json');
@@ -796,6 +853,17 @@ class SQLVersionApp {
       const text = await file.text();
       const importData = JSON.parse(text);
 
+      // v3 新增：先讓使用者選擇目標專案
+      const targetProjectId = await this.showImportProjectSelector();
+      if (!targetProjectId) {
+        // 使用者取消
+        event.target.value = '';
+        return;
+      }
+
+      // 保存目標專案以供後續使用
+      this.pendingImportData = { importData, targetProjectId };
+
       // 驗證導入數據
       const result = await this.importExportManager.importFromJSON(importData);
 
@@ -804,7 +872,7 @@ class SQLVersionApp {
         this.showConflictDialog(result);
       } else {
         // 直接導入
-        await this.performImport(importData);
+        await this.performImport(importData, targetProjectId);
       }
     } catch (error) {
       alert('導入失敗：' + error.message);
@@ -812,6 +880,65 @@ class SQLVersionApp {
 
     // 重置檔案輸入
     event.target.value = '';
+  }
+
+  /**
+   * v3 新增：顯示導入目標專案選擇對話框
+   */
+  async showImportProjectSelector() {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('importProjectModal');
+      const selector = document.getElementById('importTargetProject');
+
+      if (!modal || !selector) {
+        // 如果沒有 UI 元素，返回當前專案
+        resolve(this.projectManager.getCurrentProjectId());
+        return;
+      }
+
+      // 初始化專案選擇器
+      const projects = this.projectManager.getProjects();
+      const currentProjectId = this.projectManager.getCurrentProjectId();
+      
+      selector.innerHTML = '';
+      for (const project of projects) {
+        const option = document.createElement('option');
+        option.value = project.projectId;
+        option.textContent = project.projectName;
+        if (project.projectId === currentProjectId) {
+          option.selected = true;
+        }
+        selector.appendChild(option);
+      }
+
+      // 顯示對話框
+      modal.style.display = 'flex';
+
+      // 處理確認
+      const confirmBtn = document.getElementById('btnConfirmImportProject');
+      const cancelBtn = document.getElementById('btnCloseImportProject');
+
+      const handleConfirm = () => {
+        const projectId = selector.value;
+        modal.style.display = 'none';
+        cleanup();
+        resolve(projectId);
+      };
+
+      const handleCancel = () => {
+        modal.style.display = 'none';
+        cleanup();
+        resolve(null);
+      };
+
+      const cleanup = () => {
+        confirmBtn.removeEventListener('click', handleConfirm);
+        cancelBtn.removeEventListener('click', handleCancel);
+      };
+
+      confirmBtn.addEventListener('click', handleConfirm);
+      cancelBtn.addEventListener('click', handleCancel);
+    });
   }
 
   /**
@@ -900,9 +1027,24 @@ class SQLVersionApp {
   /**
    * 執行導入
    */
-  async performImport(jsonData, resolutions = {}) {
+  async performImport(importInfo, resolutions = {}) {
     try {
-      const results = await this.importExportManager.executeImport(jsonData, resolutions);
+      // 支持兩種格式：
+      // 1. importInfo = { importData, targetProjectId }
+      // 2. importInfo = jsonData（舊格式，使用當前專案）
+      let jsonData, targetProjectId;
+
+      if (importInfo.importData) {
+        // v3 新格式
+        jsonData = importInfo.importData;
+        targetProjectId = importInfo.targetProjectId;
+      } else {
+        // 舊格式或只傳遞 jsonData
+        jsonData = importInfo;
+        targetProjectId = this.projectManager.getCurrentProjectId();
+      }
+
+      const results = await this.importExportManager.executeImport(jsonData, resolutions, targetProjectId);
 
       let message = `導入完成！\n`;
       message += `匯入：${results.imported} 個版本\n`;
@@ -945,6 +1087,83 @@ class SQLVersionApp {
       "'": '&#039;'
     };
     return text.replace(/[&<>"']/g, m => map[m]);
+  }
+
+  // ========== v3 新增：專案管理相關方法 ==========
+
+  /**
+   * 更新專案選擇器下拉選單
+   */
+  async updateProjectSelector() {
+    const selector = document.getElementById('projectSelector');
+    if (!selector) return;
+
+    const projects = this.projectManager.getProjects();
+    const currentProjectId = this.projectManager.getCurrentProjectId();
+
+    selector.innerHTML = '';
+    for (const project of projects) {
+      const option = document.createElement('option');
+      option.value = project.projectId;
+      option.textContent = project.projectName;
+      if (project.projectId === currentProjectId) {
+        option.selected = true;
+      }
+      selector.appendChild(option);
+    }
+  }
+
+  /**
+   * 切換專案
+   */
+  async switchProject(projectId) {
+    try {
+      this.projectManager.setCurrentProject(projectId);
+      console.log('✓ 已切換到專案:', projectId);
+
+      // 更新版本樹
+      await this.loadVersionTree();
+
+      // 清空編輯器
+      document.getElementById('sqlEditor').value = '';
+      this.updateEditorStats();
+
+      // 更新選擇器UI
+      await this.updateProjectSelector();
+    } catch (error) {
+      console.error('切換專案失敗:', error);
+      alert('切換專案失敗：' + error.message);
+    }
+  }
+
+  /**
+   * 顯示建立專案對話框
+   */
+  showCreateProjectDialog() {
+    const projectName = prompt('請輸入新專案名稱：');
+    if (!projectName || projectName.trim() === '') {
+      return;
+    }
+
+    this.createProject(projectName);
+  }
+
+  /**
+   * 建立新專案
+   */
+  async createProject(projectName) {
+    try {
+      const project = await this.projectManager.createProject(projectName);
+      console.log('✓ 已建立新專案:', project.projectName);
+
+      // 自動切換到新專案
+      await this.switchProject(project.projectId);
+
+      alert(`已成功建立新專案「${projectName}」`);
+    } catch (error) {
+      console.error('建立專案失敗:', error);
+      alert('建立專案失敗：' + error.message);
+    }
   }
 }
 

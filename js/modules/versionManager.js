@@ -6,14 +6,16 @@ class VersionManager {
   constructor() {
     this.db = null;
     this.diffEngine = null;
+    this.projectManager = null;
   }
 
   /**
    * 初始化版本管理器
    */
-  async init(dbManager, diffEngineInstance) {
+  async init(dbManager, diffEngineInstance, projectManagerInstance) {
     this.db = dbManager;
     this.diffEngine = diffEngineInstance;
+    this.projectManager = projectManagerInstance;
   }
 
   /**
@@ -36,8 +38,13 @@ class VersionManager {
       throw new Error('版本標籤和作者不能為空');
     }
 
-    // 1. 獲取最新版本內容（已規範化）
-    const latestVersion = await this.db.getLatestVersion();
+    const projectId = this.projectManager.getCurrentProjectId();
+    if (!projectId) {
+      throw new Error('未指定專案');
+    }
+
+    // 1. 獲取該專案的最新版本內容（已規範化）
+    const latestVersion = await this.db.getLatestVersionByProject(projectId);
     const latestContent = latestVersion 
       ? await this.getVersionContent(latestVersion.versionId)
       : '';
@@ -62,11 +69,12 @@ class VersionManager {
     const shouldSnapshot = createSnapshot || 
                           this.diffEngine.shouldCreateSnapshot(stats, versionDepth);
 
-    // 7. 構建版本記錄
+    // 7. 構建版本記錄（添加 projectId）
     // 關鍵改變：無論是否差異模式，都同時存儲內容和差異
     // 這樣可以避免差異重建的問題
     const versionRecord = {
       versionId,
+      projectId,  // v3 新增：專案隔離
       parentVersionId: latestVersion?.versionId || null,
       timestamp: Date.now(),
       label,
@@ -86,7 +94,13 @@ class VersionManager {
     // 8. 保存到 IndexedDB
     const savedVersion = await this.db.saveVersion(versionRecord);
 
-    // 9. 更新元數據
+    // 9. 如果這是該專案的第一個版本，設定根版本 ID
+    if (versionDepth === 1) {
+      await this.projectManager.setRootVersionId(projectId, versionId);
+      console.log(`✓ 為專案「${projectId}」設定根版本: ${versionId}`);
+    }
+
+    // 10. 更新元數據
     const stats_data = await this.db.getStatistics();
     await this.db.saveMetadata('lastVersionId', versionId);
     await this.db.saveMetadata('stats', stats_data);
@@ -141,10 +155,14 @@ class VersionManager {
   }
 
   /**
-   * 獲取所有版本
+   * 獲取所有版本（當前專案）
    */
-  async getAllVersions() {
-    return await this.db.getAllVersions();
+  async getAllVersions(projectId = null) {
+    // 如果未指定 projectId，使用當前專案
+    if (!projectId) {
+      projectId = this.projectManager.getCurrentProjectId();
+    }
+    return await this.db.getVersionsByProject(projectId);
   }
 
   /**
@@ -161,17 +179,25 @@ class VersionManager {
   }
 
   /**
-   * 刪除所有版本
+   * 刪除所有版本（當前專案）
    */
-  async deleteAllVersions() {
+  async deleteAllVersions(projectId = null) {
     try {
-      // 獲取所有版本
-      const versions = await this.db.getAllVersions();
+      // 如果未指定 projectId，使用當前專案
+      if (!projectId) {
+        projectId = this.projectManager.getCurrentProjectId();
+      }
+
+      // 獲取該專案的所有版本
+      const versions = await this.db.getVersionsByProject(projectId);
       
       // 依次刪除每個版本
       for (const version of versions) {
         await this.db.deleteVersion(version.versionId);
       }
+
+      // 重置該專案的根版本 ID
+      await this.projectManager.setRootVersionId(projectId, null);
       
       console.log('✓ 所有版本已刪除');
     } catch (error) {
@@ -285,11 +311,16 @@ class VersionManager {
   }
 
   /**
-   * 壓縮版本鏈（定期維護）
+   * 壓縮版本鏈（定期維護，當前專案）
    * 將線性鏈上的多個小版本合併為單一快照
    */
-  async compactLinearChain(maxDepth = 100) {
-    const allVersions = await this.db.getAllVersions();
+  async compactLinearChain(maxDepth = 100, projectId = null) {
+    // 如果未指定 projectId，使用當前專案
+    if (!projectId) {
+      projectId = this.projectManager.getCurrentProjectId();
+    }
+
+    const allVersions = await this.db.getVersionsByProject(projectId);
 
     if (allVersions.length <= maxDepth) {
       console.log('版本鏈無需整合');

@@ -3,7 +3,7 @@
  */
 
 class DatabaseManager {
-  constructor(dbName = 'SQLVersionControl', version = 2) {
+  constructor(dbName = 'SQLVersionControl', version = 3) {
     this.dbName = dbName;
     this.version = version;
     this.db = null;
@@ -30,13 +30,22 @@ class DatabaseManager {
           }
         };
 
-        request.onsuccess = () => {
+        request.onsuccess = async () => {
           this.db = request.result;
           const dbVersion = this.db.version;
           console.log('✓ 數據庫初始化成功');
           console.log('  - 數據庫名稱:', this.dbName);
           console.log('  - 當前版本:', dbVersion);
           console.log('  - ObjectStores:', Array.from(this.db.objectStoreNames).join(', '));
+          
+          // 執行數據遷移（v2 → v3）
+          if (dbVersion >= 3) {
+            await this.migrateToV3().catch(err => {
+              console.warn('數據遷移失敗:', err);
+              // 不拋出錯誤，讓應用繼續初始化
+            });
+          }
+          
           resolve(this.db);
         };
 
@@ -49,6 +58,15 @@ class DatabaseManager {
           console.log('  - 舊版本:', oldVersion);
           console.log('  - 新版本:', newVersion);
 
+          // 0. 建立 projects ObjectStore（v3 新增）
+          if (!db.objectStoreNames.contains('projects')) {
+            const projectStore = db.createObjectStore('projects', 
+              { keyPath: 'projectId' }
+            );
+            projectStore.createIndex('projectName', 'projectName');
+            console.log('✓ 專案 ObjectStore 創建成功');
+          }
+
           // 1. 創建或升級 versions ObjectStore
           if (!db.objectStoreNames.contains('versions')) {
             const versionStore = db.createObjectStore('versions', 
@@ -57,25 +75,27 @@ class DatabaseManager {
             versionStore.createIndex('parentId', 'parentVersionId');
             versionStore.createIndex('timestamp', 'timestamp');
             versionStore.createIndex('depth', 'depth');
+            // v3：添加 projectId 複合索引
+            versionStore.createIndex('projectId_timestamp', ['projectId', 'timestamp']);
+            versionStore.createIndex('projectId', 'projectId');
             // 移除唯一約束，允許標籤重複
             versionStore.createIndex('label', 'label', { unique: false });
             console.log('✓ 版本 ObjectStore 創建成功');
-          } else {
-            // 版本升級：確保 label 索引非唯一
+          } else if (oldVersion < 3) {
+            // v2 → v3 升級：添加 projectId 相關索引
             const tx = event.target.transaction;
             const versionStore = tx.objectStore('versions');
             try {
-              // 若存在舊的唯一索引則刪除
-              versionStore.deleteIndex('label');
-              console.log('舊 label 索引已刪除');
+              versionStore.createIndex('projectId_timestamp', ['projectId', 'timestamp']);
+              console.log('✓ projectId_timestamp 索引已新增');
             } catch (e) {
-              console.log('label 索引不存在或已非唯一，跳過刪除');
+              console.warn('projectId_timestamp 索引已存在:', e.message);
             }
             try {
-              versionStore.createIndex('label', 'label', { unique: false });
-              console.log('✓ label 索引已設定為非唯一');
+              versionStore.createIndex('projectId', 'projectId');
+              console.log('✓ projectId 索引已新增');
             } catch (e) {
-              console.warn('重建 label 索引失敗：', e.message);
+              console.warn('projectId 索引已存在:', e.message);
             }
           }
 
@@ -441,6 +461,250 @@ class DatabaseManager {
       lastVersionId: allVersions.length > 0 ? allVersions[allVersions.length - 1].versionId : null,
       createdAt: allVersions.length > 0 ? allVersions[0].timestamp : null
     };
+  }
+
+  // ========== 專案管理相關方法 (v3 新增) ==========
+
+  /**
+   * 保存專案記錄
+   */
+  async saveProject(projectRecord) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('projects', 'readwrite');
+      const store = tx.objectStore('projects');
+      const request = store.add(projectRecord);
+
+      request.onsuccess = () => resolve(projectRecord);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 獲取專案記錄
+   */
+  async getProject(projectId) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('projects', 'readonly');
+      const store = tx.objectStore('projects');
+      const request = store.get(projectId);
+
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 獲取所有專案
+   */
+  async getAllProjects() {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('projects', 'readonly');
+      const store = tx.objectStore('projects');
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        const projects = request.result;
+        projects.sort((a, b) => a.createdAt - b.createdAt);
+        resolve(projects);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 更新專案記錄
+   */
+  async updateProject(projectId, updates) {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error('專案不存在');
+
+    Object.assign(project, updates, { updatedAt: Date.now() });
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('projects', 'readwrite');
+      const store = tx.objectStore('projects');
+      const request = store.put(project);
+
+      request.onsuccess = () => resolve(project);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 刪除專案及其所有版本
+   */
+  async deleteProject(projectId) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(['projects', 'versions', 'tags', 'comments'], 'readwrite');
+      
+      // 刪除專案
+      tx.objectStore('projects').delete(projectId);
+
+      // 刪除該專案的所有版本及其相關的標籤和批註
+      const versionStore = tx.objectStore('versions');
+      const projectIndex = versionStore.index('projectId');
+      
+      projectIndex.openCursor(IDBKeyRange.only(projectId)).onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          const versionId = cursor.value.versionId;
+          cursor.delete();
+
+          // 刪除相關標籤
+          const tagStore = tx.objectStore('tags');
+          const tagIndex = tagStore.index('versionId');
+          tagIndex.openCursor(IDBKeyRange.only(versionId)).onsuccess = (tagEvent) => {
+            const tagCursor = tagEvent.target.result;
+            if (tagCursor) {
+              tagCursor.delete();
+              tagCursor.continue();
+            }
+          };
+
+          // 刪除相關批註
+          const commentStore = tx.objectStore('comments');
+          const commentIndex = commentStore.index('versionId');
+          commentIndex.openCursor(IDBKeyRange.only(versionId)).onsuccess = (commentEvent) => {
+            const commentCursor = commentEvent.target.result;
+            if (commentCursor) {
+              commentCursor.delete();
+              commentCursor.continue();
+            }
+          };
+
+          cursor.continue();
+        }
+      };
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * 獲取指定專案的所有版本
+   */
+  async getVersionsByProject(projectId) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('versions', 'readonly');
+      const store = tx.objectStore('versions');
+      const index = store.index('projectId');
+      const request = index.getAll(projectId);
+
+      request.onsuccess = () => {
+        const versions = request.result;
+        versions.sort((a, b) => b.timestamp - a.timestamp);
+        resolve(versions);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 獲取指定專案的最新版本
+   */
+  async getLatestVersionByProject(projectId) {
+    const versions = await this.getVersionsByProject(projectId);
+    return versions.length > 0 ? versions[0] : null;
+  }
+
+  /**
+   * 數據遷移：v2 → v3（添加專案支持）
+   */
+  async migrateToV3() {
+    console.log('開始檢查數據遷移需求...');
+    
+    // 檢查是否已存在「預設」專案
+    const projects = await this.getAllProjects();
+    if (projects.length > 0) {
+      console.log('✓ 已存在專案記錄，無需遷移');
+      return;
+    }
+
+    console.log('開始執行 v2 → v3 數據遷移...');
+
+    // 獲取所有版本
+    const allVersions = await this.getAllVersions();
+    
+    if (allVersions.length === 0) {
+      console.log('✓ 資料庫為空，創建預設專案');
+      const defaultProject = {
+        projectId: 'default',
+        projectName: '預設',
+        rootVersionId: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      await this.saveProject(defaultProject);
+      return;
+    }
+
+    // 找出最早的根版本（parentVersionId === null）
+    let rootVersionId = null;
+    const oldestVersion = allVersions[allVersions.length - 1];
+    if (oldestVersion.parentVersionId === null) {
+      rootVersionId = oldestVersion.versionId;
+    } else {
+      // 找第一個沒有 parentVersionId 的版本
+      for (const version of allVersions) {
+        if (version.parentVersionId === null) {
+          rootVersionId = version.versionId;
+          break;
+        }
+      }
+    }
+
+    console.log('根版本 ID:', rootVersionId);
+
+    // 批量更新現有版本，添加 projectId
+    const batchSize = 50;
+    let updatedCount = 0;
+
+    for (let i = 0; i < allVersions.length; i += batchSize) {
+      const batch = allVersions.slice(i, i + batchSize);
+
+      await new Promise((resolve, reject) => {
+        const tx = this.db.transaction('versions', 'readwrite');
+        const store = tx.objectStore('versions');
+
+        for (const version of batch) {
+          // 如果還沒有 projectId，添加它
+          if (!version.projectId) {
+            version.projectId = 'default';
+            store.put(version);
+            updatedCount++;
+          }
+        }
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    console.log(`✓ 已遷移 ${updatedCount} 個版本到預設專案`);
+
+    // 建立預設專案記錄
+    const defaultProject = {
+      projectId: 'default',
+      projectName: '預設',
+      rootVersionId: rootVersionId,
+      createdAt: allVersions[allVersions.length - 1].timestamp,
+      updatedAt: Date.now()
+    };
+
+    await this.saveProject(defaultProject);
+    console.log('✓ 預設專案建立成功');
+    console.log('✅ 數據遷移完成');
   }
 }
 

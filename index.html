@@ -14,6 +14,18 @@
         <div class="logo-icon">📋</div>
         <h1 class="app-title">SQL 版本控管工具</h1>
       </div>
+      
+      <!-- v3 新增：專案選擇器 -->
+      <div class="project-selector" style="margin-left: 30px; display: flex; gap: 8px; align-items: center;">
+        <label for="projectSelector" style="font-size: 13px; font-weight: 500; color: #555;">📁 專案：</label>
+        <select id="projectSelector" class="btn" style="font-size: 13px; padding: 6px 10px; background: white; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">
+          <!-- 選項動態插入 -->
+        </select>
+        <button class="btn btn-nav" id="btnNewProject" title="建立新專案" style="font-size: 12px; padding: 6px 10px;">
+          <span class="icon">➕</span>
+          <span>新建</span>
+        </button>
+      </div>
     </div>
 
     <div class="navbar-center">
@@ -265,6 +277,14 @@
         <button class="btn-close" id="btnCloseExport">×</button>
       </div>
       <div class="modal-body">
+        <!-- v3 新增：導出選項選擇 -->
+        <div class="form-group">
+          <label for="exportProjectSelect">選擇要導出的專案</label>
+          <select id="exportProjectSelect" class="form-input">
+            <!-- 選項動態插入 -->
+          </select>
+        </div>
+        
         <div class="form-group">
           <label>導出選項（僅 JSON）</label>
           <div>
@@ -289,6 +309,31 @@
 
   <!-- 導入檔案輸入（僅 JSON） -->
   <input type="file" id="importFileInput" accept=".json" style="display:none;" />
+
+  <!-- v3 新增：導入目標專案選擇對話框 -->
+  <div id="importProjectModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>選擇導入目標專案</h2>
+        <button class="btn-close" id="btnCloseImportProject">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="importTargetProject">選擇目標專案</label>
+          <select id="importTargetProject" class="form-input">
+            <!-- 選項動態插入 -->
+          </select>
+          <p style="margin-top: 8px; color: #666; font-size: 12px;">
+            選擇要導入版本的目標專案。版本將被添加到該專案的版本鏈中。
+          </p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelImportProject">取消</button>
+        <button class="btn btn-primary" id="btnConfirmImportProject">繼續導入</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 清空全部資料確認對話框 -->
   <div id="clearAllModal" class="modal-overlay" style="display:none;">
@@ -317,6 +362,7 @@
   <!-- 應用腳本 (確保依序加載) -->
   <script src="js/modules/database.js"></script>
   <script src="js/modules/diffEngine.js"></script>
+  <script src="js/modules/projectManager.js"></script>  <!-- v3 新增：專案管理器 -->
   <script src="js/modules/versionManager.js"></script>
   <script src="js/modules/importExport.js"></script>
   <script src="js/app.js"></script>
@@ -329,6 +375,7 @@
       console.log('- diff_match_patch:', typeof diff_match_patch !== 'undefined' ? '✓' : '✗');
       console.log('- db:', typeof db !== 'undefined' ? '✓' : '✗');
       console.log('- diffEngine:', typeof diffEngine !== 'undefined' ? '✓' : '✗');
+      console.log('- projectManager:', typeof projectManager !== 'undefined' ? '✓' : '✗');
       console.log('- versionManager:', typeof versionManager !== 'undefined' ? '✓' : '✗');
       console.log('- importExportManager:', typeof importExportManager !== 'undefined' ? '✓' : '✗');
       

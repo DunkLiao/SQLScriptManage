@@ -7,28 +7,35 @@ class ImportExportManager {
     this.db = null;
     this.versionManager = null;
     this.diffEngine = null;
+    this.projectManager = null;
   }
 
   /**
    * 初始化
    */
-  async init(dbManager, vmManager, diffEngineInstance) {
+  async init(dbManager, vmManager, diffEngineInstance, projectManagerInstance) {
     this.db = dbManager;
     this.versionManager = vmManager;
     this.diffEngine = diffEngineInstance;
+    this.projectManager = projectManagerInstance;
   }
 
   /**
-   * 僅匯出為 JSON 檔案
+   * 僅匯出為 JSON 檔案（支持按專案導出）
    * 返回 { jsonContent, filename }
    */
   async exportToJSON(options = {}) {
     const {
       includeTags = true,
-      includeComments = true
+      includeComments = true,
+      projectId = null  // v3 新增：支持按專案導出
     } = options;
 
-    const allVersions = await this.db.getAllVersions();
+    // 如果未指定 projectId，使用當前專案
+    const targetProjectId = projectId || this.projectManager.getCurrentProjectId();
+
+    // 獲取指定專案的所有版本
+    const allVersions = await this.db.getVersionsByProject(targetProjectId);
     const sortedVersions = [...allVersions].sort((a, b) => a.timestamp - b.timestamp);
 
     const jsonMetadata = {
@@ -38,6 +45,7 @@ class ImportExportManager {
       includeDelta: false,
       includeTags,
       includeComments,
+      projectId: targetProjectId,  // v3 新增：記錄來源專案
       versions: [],
       tags: [],
       comments: []
@@ -59,7 +67,8 @@ class ImportExportManager {
         fullContent: version.fullContent || '',
         diffData: version.diffData || null,
         createdAt: version.createdAt,
-        updatedAt: version.updatedAt
+        updatedAt: version.updatedAt,
+        projectId: version.projectId  // v3 新增：導出版本的專案 ID
       };
       jsonMetadata.versions.push(versionData);
     }
@@ -85,7 +94,7 @@ class ImportExportManager {
     const jsonContent = JSON.stringify(jsonMetadata, null, 2);
     return {
       jsonContent,
-      filename: `sql_versions_${Date.now()}`
+      filename: `sql_versions_${targetProjectId}_${Date.now()}`
     };
   }
 
@@ -212,9 +221,14 @@ class ImportExportManager {
   }
 
   /**
-   * 執行導入
+   * 執行導入（支持指定目標專案）
    */
-  async executeImport(jsonData, conflictResolutions = {}) {
+  async executeImport(jsonData, conflictResolutions = {}, targetProjectId = null) {
+    // 如果未指定 targetProjectId，使用當前專案
+    if (!targetProjectId) {
+      targetProjectId = this.projectManager.getCurrentProjectId();
+    }
+
     const importVersions = jsonData.versions;
     const results = {
       imported: 0,
@@ -232,6 +246,9 @@ class ImportExportManager {
 
         // 避免直接改動原始資料，複製一份可寫入的版本記錄
         const versionRecord = { ...importVersion };
+
+        // v3 新增：設定目標專案 ID
+        versionRecord.projectId = targetProjectId;
 
         // 解壓縮 diffData（若為字串）
         if (versionRecord.diffData && typeof versionRecord.diffData === 'string') {
