@@ -577,12 +577,14 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 300px;
+  max-height: 600px;
 }
 
 .card-version-tree .card-body {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-height: 0;
   padding: 0;
 }
 
@@ -624,13 +626,11 @@ body {
 }
 
 .version-tree {
-  /* 讓版本列表填滿卡片可用高度，避免內外層雙重滾動造成項目不完整顯示 */
-  flex: 1;
-  overflow-y: auto;
+  /* 簡化樣式，使用固定高度強制觸發捲動 */
+  height: 350px;
+  overflow-y: scroll !important;
   overflow-x: hidden;
-  padding-right: 4px;
-  /* 確保內容超出時可捲動，最大高度由 flex 自動計算 */
-  max-height: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 美化滾動條 */
@@ -659,11 +659,14 @@ body {
 }
 
 .version-item {
-  padding: 12px;
+  display: block;
+  min-height: 80px;
+  padding: 16px 12px;
   border-bottom: 1px solid var(--border-light);
   cursor: pointer;
   transition: all 0.2s ease;
   border-left: 3px solid transparent;
+  box-sizing: border-box;
 }
 
 .version-item:hover {
