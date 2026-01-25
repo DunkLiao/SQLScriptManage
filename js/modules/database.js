@@ -14,63 +14,84 @@ class DatabaseManager {
    */
   async initialize() {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, this.version);
+      const openRequest = (requestedVersion) => {
+        const request = indexedDB.open(this.dbName, requestedVersion);
 
-      request.onerror = () => {
-        console.error('數據庫打開失敗:', request.error);
-        reject(request.error);
+        request.onerror = () => {
+          const errorMessage = request.error?.message || '未知錯誤';
+          console.error('數據庫打開失敗:', errorMessage);
+          
+          // 如果是版本不匹配的錯誤，嘗試不指定版本重新打開
+          if (errorMessage.includes('less than') && requestedVersion !== undefined) {
+            console.log('檢測到版本不匹配，嘗試以自動版本模式重新打開...');
+            openRequest(undefined);
+          } else {
+            reject(request.error);
+          }
+        };
+
+        request.onsuccess = () => {
+          this.db = request.result;
+          const dbVersion = this.db.version;
+          console.log('✓ 數據庫初始化成功');
+          console.log('  - 數據庫名稱:', this.dbName);
+          console.log('  - 當前版本:', dbVersion);
+          console.log('  - ObjectStores:', Array.from(this.db.objectStoreNames).join(', '));
+          resolve(this.db);
+        };
+
+        request.onupgradeneeded = (event) => {
+          const db = event.target.result;
+          const oldVersion = event.oldVersion;
+          const newVersion = event.newVersion;
+          
+          console.log('執行數據庫升級或初始化...');
+          console.log('  - 舊版本:', oldVersion);
+          console.log('  - 新版本:', newVersion);
+
+          // 1. 創建 versions ObjectStore
+          if (!db.objectStoreNames.contains('versions')) {
+            const versionStore = db.createObjectStore('versions', 
+              { keyPath: 'versionId' }
+            );
+            versionStore.createIndex('parentId', 'parentVersionId');
+            versionStore.createIndex('timestamp', 'timestamp');
+            versionStore.createIndex('depth', 'depth');
+            versionStore.createIndex('label', 'label', { unique: true });
+            console.log('✓ 版本 ObjectStore 創建成功');
+          }
+
+          // 2. 創建 tags ObjectStore
+          if (!db.objectStoreNames.contains('tags')) {
+            const tagStore = db.createObjectStore('tags',
+              { keyPath: 'tagId' }
+            );
+            tagStore.createIndex('versionId', 'versionId');
+            tagStore.createIndex('tagName', 'tagName', { unique: true });
+            tagStore.createIndex('type', 'type');
+            console.log('✓ 標籤 ObjectStore 創建成功');
+          }
+
+          // 3. 創建 comments ObjectStore
+          if (!db.objectStoreNames.contains('comments')) {
+            const commentStore = db.createObjectStore('comments',
+              { keyPath: 'commentId' }
+            );
+            commentStore.createIndex('versionId', 'versionId');
+            commentStore.createIndex('status', 'status');
+            commentStore.createIndex('lineNumber', 'lineNumber');
+            console.log('✓ 批註 ObjectStore 創建成功');
+          }
+
+          // 4. 創建 metadata ObjectStore
+          if (!db.objectStoreNames.contains('metadata')) {
+            db.createObjectStore('metadata', { keyPath: 'key' });
+            console.log('✓ 元數據 ObjectStore 創建成功');
+          }
+        };
       };
 
-      request.onsuccess = () => {
-        this.db = request.result;
-        console.log('數據庫初始化成功');
-        resolve(this.db);
-      };
-
-      request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        console.log('執行數據庫升級...');
-
-        // 1. 創建 versions ObjectStore
-        if (!db.objectStoreNames.contains('versions')) {
-          const versionStore = db.createObjectStore('versions', 
-            { keyPath: 'versionId' }
-          );
-          versionStore.createIndex('parentId', 'parentVersionId');
-          versionStore.createIndex('timestamp', 'timestamp');
-          versionStore.createIndex('depth', 'depth');
-          versionStore.createIndex('label', 'label', { unique: true });
-          console.log('版本 ObjectStore 創建成功');
-        }
-
-        // 2. 創建 tags ObjectStore
-        if (!db.objectStoreNames.contains('tags')) {
-          const tagStore = db.createObjectStore('tags',
-            { keyPath: 'tagId' }
-          );
-          tagStore.createIndex('versionId', 'versionId');
-          tagStore.createIndex('tagName', 'tagName', { unique: true });
-          tagStore.createIndex('type', 'type');
-          console.log('標籤 ObjectStore 創建成功');
-        }
-
-        // 3. 創建 comments ObjectStore
-        if (!db.objectStoreNames.contains('comments')) {
-          const commentStore = db.createObjectStore('comments',
-            { keyPath: 'commentId' }
-          );
-          commentStore.createIndex('versionId', 'versionId');
-          commentStore.createIndex('status', 'status');
-          commentStore.createIndex('lineNumber', 'lineNumber');
-          console.log('批註 ObjectStore 創建成功');
-        }
-
-        // 4. 創建 metadata ObjectStore
-        if (!db.objectStoreNames.contains('metadata')) {
-          db.createObjectStore('metadata', { keyPath: 'key' });
-          console.log('元數據 ObjectStore 創建成功');
-        }
-      };
+      openRequest(this.version);
     });
   }
 

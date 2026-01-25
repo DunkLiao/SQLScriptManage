@@ -38,27 +38,56 @@ class SQLVersionApp {
       console.log('✓ 所有依賴模塊已成功加載');
 
       // 初始化數據庫
+      console.log('正在初始化數據庫...');
       await db.initialize();
       this.db = db;
+      console.log('✓ 數據庫初始化完成');
 
       // 初始化版本管理器
+      console.log('正在初始化版本管理器...');
       await versionManager.init(db, diffEngine);
       this.versionManager = versionManager;
+      console.log('✓ 版本管理器初始化完成');
 
       // 初始化導入導出管理器
+      console.log('正在初始化導入導出管理器...');
       await importExportManager.init(db, versionManager, diffEngine);
       this.importExportManager = importExportManager;
+      console.log('✓ 導入導出管理器初始化完成');
 
       // 綁定 UI 事件
+      console.log('正在綁定 UI 事件...');
       this.bindUIEvents();
+      console.log('✓ UI 事件綁定完成');
 
       // 加載版本列表
+      console.log('正在加載版本列表...');
       await this.loadVersionTree();
+      console.log('✓ 版本列表加載完成');
 
-      console.log('應用初始化完成');
+      console.log('✅ 應用初始化完成！');
+      this.showInitializationStatus('success');
     } catch (error) {
-      console.error('應用初始化失敗:', error);
-      alert('應用初始化失敗：' + error.message);
+      console.error('❌ 應用初始化失敗:', error);
+      console.error('錯誤堆棧:', error.stack);
+      this.showInitializationStatus('error', error.message);
+      alert('應用初始化失敗：' + error.message + '\n\n請嘗試刷新頁面或清除瀏覽器快取。');
+    }
+  }
+
+  /**
+   * 顯示初始化狀態
+   */
+  showInitializationStatus(status, errorMessage = '') {
+    const statusElement = document.getElementById('initStatus');
+    if (statusElement) {
+      if (status === 'success') {
+        statusElement.innerHTML = '✅ 應用已就緒';
+        statusElement.style.color = 'green';
+      } else {
+        statusElement.innerHTML = '❌ 初始化失敗：' + errorMessage;
+        statusElement.style.color = 'red';
+      }
     }
   }
 
@@ -83,6 +112,13 @@ class SQLVersionApp {
     document.getElementById('btnExport').addEventListener('click', () => this.showExportDialog());
     document.getElementById('btnImport').addEventListener('click', () => this.showImportDialog());
 
+    // 初始化狀態指示器 - 點擊重新初始化
+    const initStatus = document.getElementById('initStatus');
+    if (initStatus) {
+      initStatus.style.cursor = 'pointer';
+      initStatus.addEventListener('click', () => this.reinitializeApp());
+    }
+
     // 版本資訊區域已移除
 
     // 版本列表
@@ -93,6 +129,43 @@ class SQLVersionApp {
 
     // 模態對話框
     this.bindDialogEvents();
+  }
+
+  /**
+   * 重新初始化應用
+   */
+  async reinitializeApp() {
+    console.log('用戶觸發重新初始化...');
+    const initStatus = document.getElementById('initStatus');
+    if (initStatus) {
+      initStatus.innerHTML = '⏳ 正在重新初始化...';
+      initStatus.style.color = 'orange';
+    }
+    
+    try {
+      // 重新初始化數據庫
+      console.log('重新初始化數據庫...');
+      await db.initialize();
+      this.db = db;
+      
+      // 重新初始化版本管理器
+      console.log('重新初始化版本管理器...');
+      await versionManager.init(db, diffEngine);
+      this.versionManager = versionManager;
+      
+      // 重新加載版本列表
+      console.log('重新加載版本列表...');
+      await this.loadVersionTree();
+      
+      console.log('✅ 重新初始化完成！');
+      if (initStatus) {
+        initStatus.innerHTML = '✅ 應用已就緒';
+        initStatus.style.color = 'green';
+      }
+    } catch (error) {
+      console.error('❌ 重新初始化失敗:', error);
+      this.showInitializationStatus('error', error.message);
+    }
   }
 
   /**
