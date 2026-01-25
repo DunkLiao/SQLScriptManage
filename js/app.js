@@ -76,8 +76,6 @@ class SQLVersionApp {
     // 工具欄按鈕
     document.getElementById('btnSaveVersion').addEventListener('click', () => this.showSaveVersionDialog());
     document.getElementById('btnCompare').addEventListener('click', () => this.showCompareDialog());
-    document.getElementById('btnRevert').addEventListener('click', () => this.revertVersion());
-    document.getElementById('btnTags').addEventListener('click', () => this.showTagsManagement());
 
     // 導航欄按鈕
     document.getElementById('btnNewVersion').addEventListener('click', () => this.showSaveVersionDialog());
