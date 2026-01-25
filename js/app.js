@@ -76,17 +76,14 @@ class SQLVersionApp {
     // 工具欄按鈕
     document.getElementById('btnSaveVersion').addEventListener('click', () => this.showSaveVersionDialog());
     document.getElementById('btnCompare').addEventListener('click', () => this.showCompareDialog());
+    document.getElementById('btnDeleteVersion').addEventListener('click', () => this.deleteVersion());
 
     // 導航欄按鈕
     document.getElementById('btnNewVersion').addEventListener('click', () => this.showSaveVersionDialog());
     document.getElementById('btnExport').addEventListener('click', () => this.showExportDialog());
     document.getElementById('btnImport').addEventListener('click', () => this.showImportDialog());
 
-    // 版本資訊區域
-    document.getElementById('btnEditLabel').addEventListener('click', () => this.enableLabelEdit());
-    document.getElementById('btnSaveLabel').addEventListener('click', () => this.saveVersionLabel());
-    document.getElementById('btnCopyVersionId').addEventListener('click', () => this.copyVersionId());
-    document.getElementById('btnDeleteVersion').addEventListener('click', () => this.deleteVersion());
+    // 版本資訊區域已移除
 
     // 版本列表
     document.getElementById('btnSearch').addEventListener('click', () => this.searchVersions());
@@ -282,13 +279,7 @@ class SQLVersionApp {
     const version = await this.versionManager.db.getVersion(versionId);
     if (!version) return;
 
-    // 更新版本資訊面板
-    document.getElementById('versionId').textContent = version.versionId;
-    document.getElementById('versionTime').textContent = new Date(version.timestamp).toLocaleString('zh-TW');
-    document.getElementById('versionLabel').value = version.label;
-    document.getElementById('versionAuthor').textContent = version.author;
-    document.getElementById('versionDiffAdded').textContent = `+${version.stats.linesAdded} 行`;
-    document.getElementById('versionDiffRemoved').textContent = `-${version.stats.linesRemoved} 行`;
+    // 版本資訊面板已移除
 
     // 加載版本內容到編輯器
     const content = await this.versionManager.getVersionContent(versionId);
@@ -526,58 +517,24 @@ class SQLVersionApp {
   }
 
   /**
-   * 啟用 Label 編輯
+   * 啟用版本 Label 編輯（已移除）
    */
   enableLabelEdit() {
-    const input = document.getElementById('versionLabel');
-    const editBtn = document.getElementById('btnEditLabel');
-    const saveBtn = document.getElementById('btnSaveLabel');
-
-    input.disabled = false;
-    input.focus();
-    editBtn.style.display = 'none';
-    saveBtn.style.display = 'inline-block';
+    // 版本資訊面板已移除
   }
 
   /**
-   * 保存版本 Label
+   * 保存版本 Label（已移除）
    */
   async saveVersionLabel() {
-    if (!this.selectedVersionId) return;
-
-    const label = document.getElementById('versionLabel').value.trim();
-    if (!label) {
-      alert('標籤不能為空');
-      return;
-    }
-
-    try {
-      await this.versionManager.updateVersionLabel(this.selectedVersionId, label);
-      alert('標籤已保存');
-
-      // 禁用編輯
-      document.getElementById('versionLabel').disabled = true;
-      document.getElementById('btnEditLabel').style.display = 'inline-block';
-      document.getElementById('btnSaveLabel').style.display = 'none';
-
-      // 重新加載版本樹
-      await this.loadVersionTree();
-      await this.selectVersion(this.selectedVersionId);
-    } catch (error) {
-      alert('保存失敗：' + error.message);
-    }
+    // 版本資訊面板已移除
   }
 
   /**
-   * 複製版本 ID
+   * 複製版本 ID（已移除）
    */
   copyVersionId() {
-    const versionId = document.getElementById('versionId').textContent;
-    if (versionId === '-') return;
-
-    navigator.clipboard.writeText(versionId).then(() => {
-      alert('版本 ID 已複製到剪貼板');
-    });
+    // 版本資訊面板已移除
   }
 
   /**

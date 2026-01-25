@@ -30,6 +30,10 @@
           <span class="icon">🔍</span>
           <span>差異比對</span>
         </button>
+        <button class="btn btn-action" id="btnDeleteVersion">
+          <span class="icon">🗑️</span>
+          <span>刪除版本</span>
+        </button>
       </div>
     </div>
 
@@ -80,69 +84,6 @@
       </div>
 
       <!-- 工具欄移至頂部：原區塊已移除 -->
-
-      <!-- 版本資訊卡片 -->
-      <div class="card card-info">
-        <div class="card-header">
-          <h3>版本資訊</h3>
-        </div>
-        <div class="card-body">
-          <div class="info-item">
-            <div class="info-label">版本 ID</div>
-            <div class="info-row">
-              <span id="versionId" class="info-value">-</span>
-              <button class="btn-copy" id="btnCopyVersionId" title="複製">📋</button>
-            </div>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="info-item">
-            <div class="info-label">時間</div>
-            <span id="versionTime" class="info-value">-</span>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="info-item">
-            <div class="info-label">Label（版本標籤）</div>
-            <div class="info-edit-group">
-              <input 
-                type="text" 
-                id="versionLabel" 
-                class="info-input"
-                placeholder="輸入版本標籤..."
-                disabled
-              />
-              <button class="btn-edit" id="btnEditLabel">✎</button>
-              <button class="btn-save" id="btnSaveLabel" style="display:none;">✓</button>
-            </div>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="info-item">
-            <div class="info-label">作者</div>
-            <span id="versionAuthor" class="info-value">-</span>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="info-item">
-            <div class="info-label">差異統計</div>
-            <div class="diff-stats">
-              <span class="stat-added" id="versionDiffAdded">+0 行</span>
-              <span class="stat-removed" id="versionDiffRemoved">-0 行</span>
-            </div>
-          </div>
-        </div>
-        <div class="card-footer">
-          <button class="btn btn-danger" id="btnDeleteVersion">
-            <span class="icon">🗑️</span>
-            刪除版本
-          </button>
-        </div>
-      </div>
 
       <!-- 比對結果卡片（可折疊） -->
       <div class="card card-diff" id="diffPanel" style="display:none;">
