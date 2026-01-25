@@ -293,15 +293,30 @@ class SQLVersionApp {
     const treeContainer = document.getElementById('versionTree');
     treeContainer.innerHTML = '';
 
+    // 顯示列表數量，便於確認是否取到完整資料
+    const titleEl = document.querySelector('.card.card-version-tree .card-header h3');
+    if (titleEl) {
+      titleEl.textContent = `版本列表（${versions.length}）`;
+    }
+
+    console.log('版本列表加載：', versions.map(v => v.versionId));
+
     if (versions.length === 0) {
       treeContainer.innerHTML = '<p style="text-align:center; color:#999;">暫無版本</p>';
       return;
     }
 
+    // 使用 DocumentFragment 減少重排，並保護單筆渲染錯誤不影響整體
+    const frag = document.createDocumentFragment();
     for (const version of versions) {
-      const item = this.createVersionTreeItem(version);
-      treeContainer.appendChild(item);
+      try {
+        const item = this.createVersionTreeItem(version);
+        frag.appendChild(item);
+      } catch (e) {
+        console.warn('渲染版本項目失敗：', version.versionId, e);
+      }
     }
+    treeContainer.appendChild(frag);
   }
 
   /**

@@ -3,7 +3,7 @@
  */
 
 class DatabaseManager {
-  constructor(dbName = 'SQLVersionControl', version = 1) {
+  constructor(dbName = 'SQLVersionControl', version = 2) {
     this.dbName = dbName;
     this.version = version;
     this.db = null;
@@ -49,7 +49,7 @@ class DatabaseManager {
           console.log('  - 舊版本:', oldVersion);
           console.log('  - 新版本:', newVersion);
 
-          // 1. 創建 versions ObjectStore
+          // 1. 創建或升級 versions ObjectStore
           if (!db.objectStoreNames.contains('versions')) {
             const versionStore = db.createObjectStore('versions', 
               { keyPath: 'versionId' }
@@ -57,8 +57,26 @@ class DatabaseManager {
             versionStore.createIndex('parentId', 'parentVersionId');
             versionStore.createIndex('timestamp', 'timestamp');
             versionStore.createIndex('depth', 'depth');
-            versionStore.createIndex('label', 'label', { unique: true });
+            // 移除唯一約束，允許標籤重複
+            versionStore.createIndex('label', 'label', { unique: false });
             console.log('✓ 版本 ObjectStore 創建成功');
+          } else {
+            // 版本升級：確保 label 索引非唯一
+            const tx = event.target.transaction;
+            const versionStore = tx.objectStore('versions');
+            try {
+              // 若存在舊的唯一索引則刪除
+              versionStore.deleteIndex('label');
+              console.log('舊 label 索引已刪除');
+            } catch (e) {
+              console.log('label 索引不存在或已非唯一，跳過刪除');
+            }
+            try {
+              versionStore.createIndex('label', 'label', { unique: false });
+              console.log('✓ label 索引已設定為非唯一');
+            } catch (e) {
+              console.warn('重建 label 索引失敗：', e.message);
+            }
           }
 
           // 2. 創建 tags ObjectStore
