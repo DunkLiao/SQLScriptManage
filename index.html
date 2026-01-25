@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQL 版本控管工具</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <!-- ========== 導航欄 ========== -->
+  <header class="navbar">
+    <div class="navbar-left">
+      <div class="logo-section">
+        <div class="logo-icon">📋</div>
+        <h1 class="app-title">SQL 版本控管工具</h1>
+      </div>
+    </div>
+
+    <div class="navbar-center">
+      <button class="btn btn-cta" id="btnNewVersion">
+        <span class="icon">➕</span>
+        <span>新增版本</span>
+      </button>
+    </div>
+
+    <div class="navbar-right">
+      <button class="btn btn-nav" id="btnExport" title="導出版本歷史">
+        <span class="icon">📥</span>
+        <span>導出</span>
+      </button>
+      <button class="btn btn-nav" id="btnImport" title="導入版本歷史">
+        <span class="icon">📤</span>
+        <span>導入</span>
+      </button>
+      <button class="btn btn-nav" id="btnSettings" title="設置">
+        <span class="icon">⚙️</span>
+      </button>
+      <button class="btn btn-nav" id="btnHelp" title="幫助">
+        <span class="icon">❓</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ========== 主容器 ========== -->
+  <div class="container">
+    <!-- 左側：編輯器面板 -->
+    <div class="editor-panel">
+      <!-- SQL 編輯卡片 -->
+      <div class="card card-editor">
+        <div class="card-header">
+          <h3>SQL 編輯器</h3>
+          <div class="editor-toolbar">
+            <button class="btn-icon" id="btnFormat" title="格式化">🎨</button>
+            <button class="btn-icon" id="btnClear" title="清空">🗑️</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <textarea 
+            id="sqlEditor" 
+            class="sql-editor"
+            placeholder="在此輸入或貼上 SQL 腳本..."
+            spellcheck="false"
+          ></textarea>
+          <div class="editor-stats">
+            <span>行數: <strong id="lineCount">0</strong></span>
+            <span class="stat-divider">|</span>
+            <span>字元: <strong id="charCount">0</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 工具欄卡片 -->
+      <div class="card card-toolbar">
+        <div class="card-body toolbar">
+          <button class="btn btn-primary" id="btnSaveVersion">
+            <span class="icon">💾</span>
+            <span>保存版本</span>
+          </button>
+          <button class="btn btn-secondary" id="btnCompare">
+            <span class="icon">🔍</span>
+            <span>差異比對</span>
+          </button>
+          <button class="btn btn-secondary" id="btnRevert">
+            <span class="icon">↶</span>
+            <span>回溯版本</span>
+          </button>
+          <button class="btn btn-secondary" id="btnTags">
+            <span class="icon">🏷️</span>
+            <span>標籤管理</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 版本資訊卡片 -->
+      <div class="card card-info">
+        <div class="card-header">
+          <h3>版本資訊</h3>
+        </div>
+        <div class="card-body">
+          <div class="info-item">
+            <div class="info-label">版本 ID</div>
+            <div class="info-row">
+              <span id="versionId" class="info-value">-</span>
+              <button class="btn-copy" id="btnCopyVersionId" title="複製">📋</button>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="info-item">
+            <div class="info-label">時間</div>
+            <span id="versionTime" class="info-value">-</span>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="info-item">
+            <div class="info-label">Label（版本標籤）</div>
+            <div class="info-edit-group">
+              <input 
+                type="text" 
+                id="versionLabel" 
+                class="info-input"
+                placeholder="輸入版本標籤..."
+                disabled
+              />
+              <button class="btn-edit" id="btnEditLabel">✎</button>
+              <button class="btn-save" id="btnSaveLabel" style="display:none;">✓</button>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="info-item">
+            <div class="info-label">作者</div>
+            <span id="versionAuthor" class="info-value">-</span>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="info-item">
+            <div class="info-label">差異統計</div>
+            <div class="diff-stats">
+              <span class="stat-added" id="versionDiffAdded">+0 行</span>
+              <span class="stat-removed" id="versionDiffRemoved">-0 行</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-footer">
+          <button class="btn btn-danger" id="btnDeleteVersion">
+            <span class="icon">🗑️</span>
+            刪除版本
+          </button>
+        </div>
+      </div>
+
+      <!-- 比對結果卡片（可折疊） -->
+      <div class="card card-diff" id="diffPanel" style="display:none;">
+        <div class="card-header">
+          <h3>差異比對結果</h3>
+          <button class="btn-close" id="btnCloseDiff">×</button>
+        </div>
+        <div class="card-body" id="diffContent">
+          <!-- Diff 查看器動態插入 -->
+        </div>
+      </div>
+    </div>
+
+    <!-- 右側：側邊欄 -->
+    <div class="sidebar">
+      <!-- 版本列表卡片 -->
+      <div class="card card-version-tree">
+        <div class="card-header">
+          <h3>版本列表</h3>
+        </div>
+        <div class="card-body">
+          <div class="search-box">
+            <input 
+              type="text" 
+              id="searchVersions" 
+              placeholder="搜尋版本..."
+              class="search-input"
+            />
+            <button class="btn-search" id="btnSearch">🔍</button>
+          </div>
+          <div class="version-tree" id="versionTree">
+            <!-- 版本項動態插入 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 版本詳情卡片 -->
+      <div class="card card-detail">
+        <div class="card-header">
+          <h3>版本詳情</h3>
+        </div>
+        <div class="card-body" id="detailContent">
+          <p class="placeholder-text">選擇一個版本查看詳情</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 模態對話框 ========== -->
+
+  <!-- 新增版本對話框 -->
+  <div id="newVersionModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>保存新版本</h2>
+        <button class="btn-close" id="btnCloseModal">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="newLabel">版本標籤 <span class="required">*</span></label>
+          <input 
+            type="text" 
+            id="newLabel" 
+            class="form-input"
+            placeholder="例如：v1.2.0、Add users table"
+            required
+          />
+        </div>
+        <div class="form-group">
+          <label for="newDescription">描述</label>
+          <textarea 
+            id="newDescription" 
+            class="form-textarea"
+            placeholder="描述此版本的更改內容..."
+            rows="4"
+          ></textarea>
+        </div>
+        <div class="form-group">
+          <label for="newAuthor">作者 <span class="required">*</span></label>
+          <input 
+            type="text" 
+            id="newAuthor" 
+            class="form-input"
+            placeholder="user@example.com"
+            required
+          />
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="createSnapshot" />
+            <span>建立快照（完整內容，便於快速訪問）</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelSave">取消</button>
+        <button class="btn btn-primary" id="btnConfirmSave">保存版本</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 差異比對對話框 -->
+  <div id="compareModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>差異比對</h2>
+        <button class="btn-close" id="btnCloseCompare">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="compareFrom">從版本</label>
+          <select id="compareFrom" class="form-input">
+            <option value="">選擇版本...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="compareTo">到版本</label>
+          <select id="compareTo" class="form-input">
+            <option value="">選擇版本...</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelCompare">取消</button>
+        <button class="btn btn-primary" id="btnDoCompare">執行比對</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 衝突確認對話框 -->
+  <div id="conflictModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-large">
+      <div class="modal-header">
+        <h2>導入衝突確認</h2>
+        <button class="btn-close" id="btnCloseConflict">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="conflict-intro">
+          <p>檢測到以下版本衝突，請選擇處理方式：</p>
+        </div>
+        <div class="conflict-list" id="conflictList">
+          <!-- 衝突項動態插入 -->
+        </div>
+        <div class="conflict-strategy-panel">
+          <h4>批量處理策略</h4>
+          <div class="strategy-options">
+            <label class="radio-label">
+              <input type="radio" name="strategy" value="skipAll" checked />
+              <span>跳過所有衝突版本</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="strategy" value="overwriteAll" />
+              <span>覆蓋所有現有版本</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="strategy" value="mergeAll" />
+              <span>合併所有為新版本</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="strategy" value="custom" />
+              <span>逐個選擇（見上方）</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelImport">取消導入</button>
+        <button class="btn btn-primary" id="btnConfirmImport">確認導入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 導出對話框 -->
+  <div id="exportModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>導出版本歷史</h2>
+        <button class="btn-close" id="btnCloseExport">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>導出範圍</label>
+          <div>
+            <label class="radio-label">
+              <input type="radio" name="exportRange" value="all" checked />
+              <span>所有版本</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="exportRange" value="from" />
+              <span>從版本：</span>
+              <select id="exportFromVersion" class="form-input" disabled style="flex: 1; margin-left: 8px;">
+                <option>選擇版本...</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>導出內容</label>
+          <div>
+            <label class="checkbox-label">
+              <input type="checkbox" id="exportMetadata" checked />
+              <span>版本元數據（.json）</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="exportSQL" checked />
+              <span>SQL 檔案（.sql）</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="exportTags" checked />
+              <span>標籤資訊</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="exportComments" checked />
+              <span>批註資訊</span>
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>壓縮格式</label>
+          <div>
+            <label class="radio-label">
+              <input type="radio" name="format" value="zip" checked />
+              <span>ZIP 檔案（推薦）</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="format" value="individual" />
+              <span>個別檔案</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelExport">取消</button>
+        <button class="btn btn-primary" id="btnStartExport">開始導出</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 導入檔案輸入（隱藏） -->
+  <input type="file" id="importFileInput" accept=".zip,.json" style="display:none;" />
+
+  <!-- ========== 腳本引入 ========== -->
+  <!-- diff-match-patch 庫 (使用 unpkg CDN) -->
+  <script src="https://unpkg.com/diff-match-patch@1.0.5/index.js"></script>
+  
+  <!-- 應用腳本 (確保依序加載) -->
+  <script src="js/modules/database.js"></script>
+  <script src="js/modules/diffEngine.js"></script>
+  <script src="js/modules/versionManager.js"></script>
+  <script src="js/modules/importExport.js"></script>
+  <script src="js/app.js"></script>
+  
+  <!-- 初始化檢查 -->
+  <script>
+    // 確保所有依賴都已加載
+    window.addEventListener('DOMContentLoaded', () => {
+      console.log('檢查依賴加載狀態:');
+      console.log('- diff_match_patch:', typeof diff_match_patch !== 'undefined' ? '✓' : '✗');
+      console.log('- db:', typeof db !== 'undefined' ? '✓' : '✗');
+      console.log('- diffEngine:', typeof diffEngine !== 'undefined' ? '✓' : '✗');
+      console.log('- versionManager:', typeof versionManager !== 'undefined' ? '✓' : '✗');
+      console.log('- importExportManager:', typeof importExportManager !== 'undefined' ? '✓' : '✗');
+      
+      if (typeof diff_match_patch === 'undefined') {
+        console.error('❌ diff-match-patch 庫加載失敗，請檢查網絡連接');
+        alert('差異比對庫加載失敗，請刷新頁面重試');
+      }
+    });
+  </script>
+</body>
+</html>
