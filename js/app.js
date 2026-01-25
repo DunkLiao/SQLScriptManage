@@ -619,40 +619,20 @@ class SQLVersionApp {
   }
 
   /**
-   * 執行導出
+   * 執行導出（僅 JSON）
    */
   async performExport() {
     try {
-      const includeMetadata = document.getElementById('exportMetadata').checked;
-      const includeSQL = document.getElementById('exportSQL').checked;
       const includeTags = document.getElementById('exportTags').checked;
       const includeComments = document.getElementById('exportComments').checked;
-      const format = document.querySelector('input[name="format"]:checked').value;
-
-      if (!includeMetadata && !includeSQL) {
-        alert('請至少選擇一個導出內容');
-        return;
-      }
-
-      const { sqlContent, jsonContent, filename } = await this.importExportManager.exportToSQLAndJSON({
-        includeDelta: false,
+      const { jsonContent, filename } = await this.importExportManager.exportToJSON({
         includeTags,
         includeComments
       });
 
-      // 下載
-      if (format === 'zip') {
-        await this.importExportManager.downloadAsZip(sqlContent, jsonContent, filename);
-      } else {
-        if (includeSQL) {
-          this.importExportManager.downloadFile(sqlContent, `${filename}.sql`, 'text/plain');
-        }
-        if (includeMetadata) {
-          this.importExportManager.downloadFile(jsonContent, `${filename}.json`, 'application/json');
-        }
-      }
+      this.importExportManager.downloadFile(jsonContent, `${filename}.json`, 'application/json');
 
-      alert('導出成功！');
+      alert('導出成功！(JSON)');
       document.getElementById('exportModal').style.display = 'none';
     } catch (error) {
       alert('導出失敗：' + error.message);
@@ -667,25 +647,21 @@ class SQLVersionApp {
   }
 
   /**
-   * 處理導入檔案
+   * 處理導入檔案（僅 JSON）
    */
   async handleImportFile(event) {
     const file = event.target.files[0];
     if (!file) return;
 
     try {
-      let importData;
-
-      if (file.name.endsWith('.zip')) {
-        const zipData = await this.importExportManager.parseZipFile(file);
-        importData = zipData.jsonContent;
-      } else if (file.name.endsWith('.json')) {
-        const text = await file.text();
-        importData = JSON.parse(text);
-      } else {
-        alert('請選擇 ZIP 或 JSON 檔案');
+      if (!file.name.endsWith('.json')) {
+        alert('請選擇 JSON 檔案');
+        event.target.value = '';
         return;
       }
+
+      const text = await file.text();
+      const importData = JSON.parse(text);
 
       // 驗證導入數據
       const result = await this.importExportManager.importFromJSON(importData);
@@ -761,7 +737,8 @@ class SQLVersionApp {
 
     if (strategy !== 'custom') {
       // 對所有衝突應用相同策略
-      for (const conflict of this.importExportManager._detectConflicts(this.pendingImportData.versions)) {
+      const conflicts = await this.importExportManager._detectConflicts(this.pendingImportData.versions);
+      for (const conflict of conflicts) {
         if (conflict.type === 'version_exists') {
           resolutions[conflict.versionId] = strategy === 'skipAll' ? 'skip' :
                                             strategy === 'overwriteAll' ? 'overwrite' :

@@ -19,44 +19,23 @@ class ImportExportManager {
   }
 
   /**
-   * 導出為 SQL 和 JSON 檔案
-   * 返回 { sqlContent, jsonContent }
+   * 僅匯出為 JSON 檔案
+   * 返回 { jsonContent, filename }
    */
-  async exportToSQLAndJSON(options = {}) {
+  async exportToJSON(options = {}) {
     const {
-      includeDelta = false,
       includeTags = true,
       includeComments = true
     } = options;
 
     const allVersions = await this.db.getAllVersions();
-
-    // 生成 SQL 檔案內容
-    let sqlContent = '';
-    sqlContent += '-- ==========================================\n';
-    sqlContent += '-- SQL Version Archive\n';
-    sqlContent += `-- Generated: ${new Date().toISOString()}\n`;
-    sqlContent += `-- Total Versions: ${allVersions.length}\n`;
-    sqlContent += '-- ==========================================\n\n';
-
-    // 按時間排序版本
     const sortedVersions = [...allVersions].sort((a, b) => a.timestamp - b.timestamp);
 
-    for (const version of sortedVersions) {
-      const content = await this.versionManager.getVersionContent(version.versionId);
-      const timestamp = new Date(version.timestamp).toLocaleString('zh-TW');
-      
-      sqlContent += `-- ===== Version: ${version.versionId} [${timestamp}] | ${version.label} | ${version.author} =====\n`;
-      sqlContent += content;
-      sqlContent += '\n\n';
-    }
-
-    // 生成 JSON 元數據
     const jsonMetadata = {
       formatVersion: '1.0',
       exportDate: new Date().toISOString(),
       totalVersions: sortedVersions.length,
-      includeDelta,
+      includeDelta: false,
       includeTags,
       includeComments,
       versions: [],
@@ -64,7 +43,6 @@ class ImportExportManager {
       comments: []
     };
 
-    // 收集版本詳細信息
     for (const version of sortedVersions) {
       const versionData = {
         versionId: version.versionId,
@@ -78,16 +56,9 @@ class ImportExportManager {
         stats: version.stats,
         depth: version.depth
       };
-
-      // 包含差異數據
-      if (includeDelta && version.isDeltaMode && version.diffData) {
-        versionData.diffData = version.diffData;
-      }
-
       jsonMetadata.versions.push(versionData);
     }
 
-    // 收集標籤
     if (includeTags) {
       for (const version of sortedVersions) {
         const tags = await this.db.getVersionTags(version.versionId);
@@ -95,7 +66,6 @@ class ImportExportManager {
       }
     }
 
-    // 收集批註
     if (includeComments) {
       for (const version of sortedVersions) {
         const comments = await this.db.getVersionComments(version.versionId);
@@ -103,38 +73,15 @@ class ImportExportManager {
       }
     }
 
-    // 添加校驗和
     const jsonString = JSON.stringify(jsonMetadata.versions);
     const checksum = await this.diffEngine.computeHash(jsonString);
     jsonMetadata.checksum = checksum;
 
     const jsonContent = JSON.stringify(jsonMetadata, null, 2);
-
     return {
-      sqlContent,
       jsonContent,
       filename: `sql_versions_${Date.now()}`
     };
-  }
-
-  /**
-   * 下載為 ZIP 檔案
-   */
-  async downloadAsZip(sqlContent, jsonContent, filename) {
-    // 檢查 JSZip 是否可用
-    if (typeof JSZip === 'undefined') {
-      console.warn('JSZip 庫未加載，改為分別下載檔案');
-      this.downloadFile(sqlContent, `${filename}.sql`, 'text/plain');
-      this.downloadFile(jsonContent, `${filename}.json`, 'application/json');
-      return;
-    }
-
-    const zip = new JSZip();
-    zip.file(`${filename}.sql`, sqlContent);
-    zip.file(`${filename}.json`, jsonContent);
-
-    const blob = await zip.generateAsync({ type: 'blob' });
-    this.downloadFile(blob, `${filename}.zip`, 'application/zip');
   }
 
   /**
@@ -332,55 +279,6 @@ class ImportExportManager {
     return results;
   }
 
-  /**
-   * 從 ZIP 檔案解析 SQL 和 JSON
-   */
-  async parseZipFile(zipBlob) {
-    if (typeof JSZip === 'undefined') {
-      throw new Error('JSZip 庫未加載');
-    }
-
-    const zip = new JSZip();
-    await zip.loadAsync(zipBlob);
-
-    const files = Object.keys(zip.files);
-    const sqlFile = files.find(f => f.endsWith('.sql'));
-    const jsonFile = files.find(f => f.endsWith('.json'));
-
-    const result = {};
-
-    if (sqlFile) {
-      result.sqlContent = await zip.file(sqlFile).async('text');
-    }
-
-    if (jsonFile) {
-      const jsonText = await zip.file(jsonFile).async('text');
-      result.jsonContent = JSON.parse(jsonText);
-    }
-
-    return result;
-  }
-
-  /**
-   * 從 SQL 檔案中提取版本（簡化版本）
-   * 實際上 SQL 檔案用於備份，完整的版本信息在 JSON 中
-   */
-  async extractVersionsFromSQL(sqlContent) {
-    const versionPattern = /-- ===== Version: (v_\d+_\d+) \[(.*?)\] \| (.*?) \| (.*?) =====/g;
-    const versions = [];
-    let match;
-
-    while ((match = versionPattern.exec(sqlContent)) !== null) {
-      versions.push({
-        versionId: match[1],
-        timestamp: new Date(match[2]).getTime(),
-        label: match[3],
-        author: match[4]
-      });
-    }
-
-    return versions;
-  }
 }
 
 // 導出全局實例
