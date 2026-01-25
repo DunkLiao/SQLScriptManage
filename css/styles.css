@@ -253,6 +253,17 @@ body {
   background: var(--primary-light);
 }
 
+.btn-danger {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+}
+
+.btn-danger:hover {
+  background-color: #c82333;
+  border-color: #c82333;
+}
+
 .btn-icon {
   background: transparent;
   border: none;

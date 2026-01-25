@@ -161,6 +161,26 @@ class VersionManager {
   }
 
   /**
+   * 刪除所有版本
+   */
+  async deleteAllVersions() {
+    try {
+      // 獲取所有版本
+      const versions = await this.db.getAllVersions();
+      
+      // 依次刪除每個版本
+      for (const version of versions) {
+        await this.db.deleteVersion(version.versionId);
+      }
+      
+      console.log('✓ 所有版本已刪除');
+    } catch (error) {
+      console.error('❌ 刪除所有版本失敗:', error);
+      throw new Error('刪除所有版本失敗：' + error.message);
+    }
+  }
+
+  /**
    * 更新版本標籤
    */
   async updateVersionLabel(versionId, newLabel) {

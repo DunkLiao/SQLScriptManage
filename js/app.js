@@ -148,6 +148,18 @@ class SQLVersionApp {
         document.getElementById('diffContent').innerHTML = '';
       });
     }
+
+    // 清空全部資料對話框
+    document.getElementById('btnClearAllData').addEventListener('click', () => {
+      document.getElementById('clearAllModal').style.display = 'flex';
+    });
+    document.getElementById('btnCloseClearAll').addEventListener('click', () => {
+      document.getElementById('clearAllModal').style.display = 'none';
+    });
+    document.getElementById('btnCancelClearAll').addEventListener('click', () => {
+      document.getElementById('clearAllModal').style.display = 'none';
+    });
+    document.getElementById('btnConfirmClearAll').addEventListener('click', () => this.confirmClearAllData());
   }
 
   /**
@@ -578,6 +590,39 @@ class SQLVersionApp {
       } catch (error) {
         alert('刪除失敗：' + error.message);
       }
+    }
+  }
+
+  /**
+   * 確認清空全部資料
+   */
+  async confirmClearAllData() {
+    try {
+      // 清空資料庫中的所有版本
+      await this.versionManager.deleteAllVersions();
+      
+      // 清空編輯器
+      document.getElementById('sqlEditor').value = '';
+      
+      // 重新整理版本樹
+      await this.loadVersionTree();
+      
+      // 清空詳情面板
+      document.getElementById('detailContent').innerHTML = '<p class="placeholder-text">選擇一個版本查看詳情</p>';
+      
+      // 關閉對話框
+      document.getElementById('clearAllModal').style.display = 'none';
+      
+      // 更新統計信息
+      this.updateEditorStats();
+      
+      // 顯示成功訊息
+      alert('✓ 所有版本資料已成功刪除');
+      
+      console.log('✓ 清空全部版本資料完成');
+    } catch (error) {
+      console.error('❌ 清空資料失敗:', error);
+      alert('❌ 清空資料失敗，請重試');
     }
   }
 
