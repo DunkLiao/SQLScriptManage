@@ -673,7 +673,7 @@ class SQLVersionApp {
     if (newLabel) newLabel.value = '';
     if (newDescription) newDescription.value = '';
     if (newAuthor) newAuthor.value = localStorage.getItem('lastAuthor') || '';
-    if (createSnapshot) createSnapshot.checked = false;
+    if (createSnapshot) createSnapshot.checked = true;
     
     // 判斷是否基於現有版本
     const isNewVersion = !this.selectedVersionId;
