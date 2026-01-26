@@ -94,6 +94,13 @@ body {
   color: var(--primary);
 }
 
+.logo-image {
+  height: 20px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
 .app-title {
   font-size: 22px;
   font-weight: 600;
