@@ -125,6 +125,10 @@ class SQLVersionApp {
     // 導航欄按鈕
     document.getElementById('btnExport').addEventListener('click', () => this.showExportDialog());
     document.getElementById('btnImport').addEventListener('click', () => this.showImportDialog());
+    
+    // 完整備份與還原按鈕
+    document.getElementById('btnFullBackup').addEventListener('click', () => this.showFullBackupDialog());
+    document.getElementById('btnFullRestore').addEventListener('click', () => this.showFullRestoreDialog());
 
     // v3 新增：專案管理事件監聽
     const projectSelector = document.getElementById('projectSelector');
@@ -271,6 +275,29 @@ class SQLVersionApp {
         document.getElementById('importProjectModal').style.display = 'none';
       });
     }
+
+    // 完整備份對話框
+    document.getElementById('btnCloseFullBackup').addEventListener('click', () => {
+      document.getElementById('fullBackupModal').style.display = 'none';
+    });
+    document.getElementById('btnCancelFullBackup').addEventListener('click', () => {
+      document.getElementById('fullBackupModal').style.display = 'none';
+    });
+    document.getElementById('btnConfirmFullBackup').addEventListener('click', () => this.performFullBackup());
+
+    // 完整還原對話框
+    document.getElementById('btnCloseFullRestore').addEventListener('click', () => {
+      document.getElementById('fullRestoreModal').style.display = 'none';
+    });
+    document.getElementById('btnCancelFullRestore').addEventListener('click', () => {
+      document.getElementById('fullRestoreModal').style.display = 'none';
+    });
+    document.getElementById('btnConfirmFullRestore').addEventListener('click', () => this.performFullRestore());
+
+    // 完整還原檔案輸入
+    document.getElementById('fullRestoreFileInput').addEventListener('change', (e) => {
+      this.handleFullRestoreFile(e);
+    });
   }
 
   /**
@@ -1305,6 +1332,230 @@ class SQLVersionApp {
     } catch (error) {
       console.error('刪除專案失敗:', error);
       alert('刪除專案失敗：' + error.message);
+    }
+  }
+
+  // ========== 完整備份與還原功能 ==========
+
+  /**
+   * 顯示完整備份對話框
+   */
+  async showFullBackupDialog() {
+    try {
+      // 獲取統計資訊
+      const allProjects = await this.importExportManager._getAllProjects();
+      const allVersions = await this.db.getAllVersions();
+      const allTags = await this.importExportManager._getAllTags();
+      const allComments = await this.importExportManager._getAllComments();
+
+      // 更新統計顯示
+      document.getElementById('statsProjects').textContent = allProjects.length;
+      document.getElementById('statsVersions').textContent = allVersions.length;
+      document.getElementById('statsTags').textContent = allTags.length;
+      document.getElementById('statsComments').textContent = allComments.length;
+
+      // 顯示對話框
+      document.getElementById('fullBackupModal').style.display = 'flex';
+    } catch (error) {
+      console.error('載入統計資訊失敗:', error);
+      alert('載入統計資訊失敗：' + error.message);
+    }
+  }
+
+  /**
+   * 執行完整備份
+   */
+  async performFullBackup() {
+    try {
+      const includeTags = document.getElementById('backupIncludeTags').checked;
+      const includeComments = document.getElementById('backupIncludeComments').checked;
+      const includeMetadata = document.getElementById('backupIncludeMetadata').checked;
+
+      console.log('開始完整資料庫備份...');
+
+      const { jsonContent, filename } = await this.importExportManager.exportFullDatabase({
+        includeTags,
+        includeComments,
+        includeMetadata
+      });
+
+      this.importExportManager.downloadFile(jsonContent, filename, 'application/json');
+
+      console.log('✓ 完整備份完成');
+      alert('完整資料庫備份成功！');
+      
+      document.getElementById('fullBackupModal').style.display = 'none';
+    } catch (error) {
+      console.error('完整備份失敗:', error);
+      alert('完整備份失敗：' + error.message);
+    }
+  }
+
+  /**
+   * 顯示完整還原對話框
+   */
+  showFullRestoreDialog() {
+    // 觸發檔案選擇
+    document.getElementById('fullRestoreFileInput').click();
+  }
+
+  /**
+   * 處理完整還原檔案
+   */
+  async handleFullRestoreFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    try {
+      if (!file.name.endsWith('.json')) {
+        alert('請選擇 JSON 備份檔案');
+        event.target.value = '';
+        return;
+      }
+
+      console.log('正在讀取備份檔案...');
+      const text = await file.text();
+      const jsonData = JSON.parse(text);
+
+      // 驗證是否為完整備份檔案
+      if (jsonData.formatVersion !== '2.0' || jsonData.exportType !== 'full') {
+        alert('這不是有效的完整備份檔案（需要 formatVersion 2.0 且 exportType 為 full）');
+        event.target.value = '';
+        return;
+      }
+
+      // 顯示檔案資訊
+      const restoreFileInfo = document.getElementById('restoreFileInfo');
+      const restoreStats = document.getElementById('restoreStats');
+      
+      restoreStats.innerHTML = `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <div><strong>匯出日期：</strong>${new Date(jsonData.exportDate).toLocaleString('zh-TW')}</div>
+          <div><strong>格式版本：</strong>${jsonData.formatVersion}</div>
+          <div><strong>專案數：</strong>${jsonData.totalProjects || 0}</div>
+          <div><strong>版本數：</strong>${jsonData.totalVersions || 0}</div>
+          <div><strong>標籤數：</strong>${jsonData.totalTags || 0}</div>
+          <div><strong>批註數：</strong>${jsonData.totalComments || 0}</div>
+        </div>
+      `;
+      
+      restoreFileInfo.style.display = 'block';
+
+      // 保存資料供還原使用
+      this.pendingRestoreData = jsonData;
+
+      // 顯示還原對話框
+      document.getElementById('fullRestoreModal').style.display = 'flex';
+    } catch (error) {
+      console.error('讀取備份檔案失敗:', error);
+      alert('讀取備份檔案失敗：' + error.message);
+    }
+
+    // 重置檔案輸入
+    event.target.value = '';
+  }
+
+  /**
+   * 執行完整還原
+   */
+  async performFullRestore() {
+    if (!this.pendingRestoreData) {
+      alert('請先選擇備份檔案');
+      return;
+    }
+
+    const strategy = document.querySelector('input[name="restoreStrategy"]:checked').value;
+    const clearExisting = document.getElementById('restoreClearExisting').checked;
+
+    // 如果選擇清空現有資料，需要二次確認
+    if (clearExisting) {
+      const confirmed = confirm(
+        '⚠️ 警告：您選擇了「清空所有現有資料」選項！\n\n' +
+        '此操作將永久刪除資料庫中的所有專案、版本、標籤和批註，\n' +
+        '然後匯入備份檔案的內容。\n\n' +
+        '此操作無法復原！是否確定要繼續？'
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      // 第三次確認（因為這是非常危險的操作）
+      const finalConfirm = confirm(
+        '最後確認：\n\n' +
+        '您真的要清空所有現有資料並還原備份嗎？\n' +
+        '點擊「確定」將開始執行，點擊「取消」將中止操作。'
+      );
+
+      if (!finalConfirm) {
+        return;
+      }
+    }
+
+    try {
+      console.log('開始完整資料庫還原...');
+      console.log(`  - 衝突策略: ${strategy}`);
+      console.log(`  - 清空現有資料: ${clearExisting}`);
+
+      const results = await this.importExportManager.importFullDatabase(this.pendingRestoreData, {
+        conflictStrategy: strategy,
+        clearExisting: clearExisting
+      });
+
+      // 組合結果訊息
+      let message = '完整資料庫還原完成！\n\n';
+      message += `專案：新增 ${results.projects.imported}, 覆蓋 ${results.projects.overwritten}, 跳過 ${results.projects.skipped}\n`;
+      message += `版本：新增 ${results.versions.imported}, 覆蓋 ${results.versions.overwritten}, 合併 ${results.versions.merged}, 跳過 ${results.versions.skipped}\n`;
+      message += `標籤：新增 ${results.tags.imported}, 跳過 ${results.tags.skipped}\n`;
+      message += `批註：新增 ${results.comments.imported}, 跳過 ${results.comments.skipped}`;
+
+      if (results.metadata.imported > 0) {
+        message += `\n元數據：新增 ${results.metadata.imported}`;
+      }
+
+      // 檢查錯誤
+      const totalErrors = 
+        results.projects.errors.length +
+        results.versions.errors.length +
+        results.tags.errors.length +
+        results.comments.errors.length +
+        results.metadata.errors.length;
+
+      if (totalErrors > 0) {
+        message += `\n\n⚠️ 發生 ${totalErrors} 個錯誤`;
+        console.warn('還原錯誤詳情:', results);
+      }
+
+      alert(message);
+
+      // 關閉對話框
+      document.getElementById('fullRestoreModal').style.display = 'none';
+
+      // 清除暫存資料
+      this.pendingRestoreData = null;
+
+      // 重新載入專案清單（確保還原後的專案出現在下拉選單）
+      await this.projectManager.loadProjects();
+
+      // 若當前專案已不存在，切換到第一個可用專案
+      const projects = this.projectManager.getProjects();
+      if (projects.length > 0) {
+        const currentId = this.projectManager.getCurrentProjectId();
+        if (!projects.some(p => p.projectId === currentId)) {
+          this.projectManager.setCurrentProject(projects[0].projectId);
+        }
+      }
+
+      // 重新初始化專案選擇器
+      await this.updateProjectSelector();
+
+      // 重新加載版本列表
+      await this.loadVersionTree();
+
+      console.log('✓ 完整還原完成並已重新載入');
+    } catch (error) {
+      console.error('完整還原失敗:', error);
+      alert('完整還原失敗：' + error.message);
     }
   }
 }
