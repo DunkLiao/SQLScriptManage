@@ -137,6 +137,11 @@ class SQLVersionApp {
       btnNewProject.addEventListener('click', () => this.showCreateProjectDialog());
     }
 
+    const btnDeleteProject = document.getElementById('btnDeleteProject');
+    if (btnDeleteProject) {
+      btnDeleteProject.addEventListener('click', () => this.showDeleteProjectDialog());
+    }
+
     // 初始化狀態指示器 - 點擊重新初始化
     const initStatus = document.getElementById('initStatus');
     if (initStatus) {
@@ -1219,6 +1224,87 @@ class SQLVersionApp {
     } catch (error) {
       console.error('建立專案失敗:', error);
       alert('建立專案失敗：' + error.message);
+    }
+  }
+
+  /**
+   * 顯示刪除專案對話框
+   */
+  showDeleteProjectDialog() {
+    const projects = this.projectManager.getProjects();
+    const currentProjectId = this.projectManager.getCurrentProjectId();
+    
+    if (projects.length <= 1) {
+      alert('至少需要保留一個專案，無法刪除。');
+      return;
+    }
+    
+    // 建立選項文字，顯示所有專案
+    let message = '請選擇要刪除的專案：\n\n';
+    projects.forEach((proj, index) => {
+      const isCurrent = proj.projectId === currentProjectId;
+      message += `${index + 1}. ${proj.projectName}${isCurrent ? ' (當前專案)' : ''}\n`;
+    });
+    
+    const selection = prompt(message + '\n請輸入專案編號（1-' + projects.length + '）：');
+    
+    if (!selection) {
+      return;  // 用戶取消
+    }
+    
+    const index = parseInt(selection) - 1;
+    if (isNaN(index) || index < 0 || index >= projects.length) {
+      alert('無效的選擇');
+      return;
+    }
+    
+    const projectToDelete = projects[index];
+    this.deleteProject(projectToDelete.projectId, projectToDelete.projectName);
+  }
+
+  /**
+   * 刪除專案
+   */
+  async deleteProject(projectId, projectName) {
+    const currentProjectId = this.projectManager.getCurrentProjectId();
+    const isCurrentProject = projectId === currentProjectId;
+    
+    // 二次確認
+    const confirmed = confirm(
+      `確定要刪除專案「${projectName}」嗎？\n\n` +
+      '⚠️ 警告：此操作將刪除該專案下的所有版本記錄，且無法復原！'
+    );
+    
+    if (!confirmed) {
+      return;
+    }
+    
+    try {
+      // 如果要刪除的是當前專案，先切換到其他專案
+      if (isCurrentProject) {
+        const projects = this.projectManager.getProjects();
+        const otherProject = projects.find(p => p.projectId !== projectId);
+        
+        if (otherProject) {
+          console.log(`正在切換到專案「${otherProject.projectName}」...`);
+          await this.switchProject(otherProject.projectId);
+        }
+      }
+      
+      // 執行刪除（現在可以安全刪除了）
+      await this.projectManager.deleteProject(projectId);
+      console.log(`✓ 專案「${projectName}」已成功刪除`);
+      
+      // 更新專案選擇器
+      await this.updateProjectSelector();
+      
+      // 重新加載版本列表
+      await this.loadVersionTree();
+      
+      alert(`專案「${projectName}」已成功刪除`);
+    } catch (error) {
+      console.error('刪除專案失敗:', error);
+      alert('刪除專案失敗：' + error.message);
     }
   }
 }
