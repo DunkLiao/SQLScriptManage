@@ -30,10 +30,6 @@
 
     <div class="navbar-center">
       <div class="center-actions">
-        <button class="btn btn-action" id="btnNewVersion">
-          <span class="icon">➕</span>
-          <span>新增版本</span>
-        </button>
         <button class="btn btn-action" id="btnSaveVersion">
           <span class="icon">💾</span>
           <span>保存版本</span>
@@ -155,6 +151,9 @@
         <button class="btn-close" id="btnCloseModal">×</button>
       </div>
       <div class="modal-body">
+        <!-- 父版本資訊區域 -->
+        <div id="versionParentInfo"></div>
+        
         <div class="form-group">
           <label for="newLabel">版本標籤 <span class="required">*</span></label>
           <input 

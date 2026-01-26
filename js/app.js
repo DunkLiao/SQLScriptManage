@@ -123,7 +123,6 @@ class SQLVersionApp {
     document.getElementById('btnDeleteVersion').addEventListener('click', () => this.deleteVersion());
 
     // 導航欄按鈕
-    document.getElementById('btnNewVersion').addEventListener('click', () => this.showSaveVersionDialog());
     document.getElementById('btnExport').addEventListener('click', () => this.showExportDialog());
     document.getElementById('btnImport').addEventListener('click', () => this.showImportDialog());
 
@@ -448,12 +447,69 @@ class SQLVersionApp {
   /**
    * 顯示保存版本對話框
    */
-  showSaveVersionDialog() {
+  async showSaveVersionDialog() {
+    const sqlContent = document.getElementById('sqlEditor').value.trim();
+    
+    // 檢查是否有內容
+    if (!sqlContent) {
+      alert('❌ 請先輸入 SQL 內容');
+      return;
+    }
+    
+    // 清空表單
     document.getElementById('newLabel').value = '';
     document.getElementById('newDescription').value = '';
     document.getElementById('newAuthor').value = localStorage.getItem('lastAuthor') || '';
     document.getElementById('createSnapshot').checked = false;
+    
+    // 判斷是否基於現有版本
+    const isNewVersion = !this.selectedVersionId;
+    
+    // 更新對話框標題
+    const modalTitle = document.querySelector('#newVersionModal .modal-header h2');
+    if (modalTitle) {
+      modalTitle.textContent = isNewVersion ? '保存新版本' : '保存為新版本';
+    }
+    
+    // 顯示父版本資訊（如果基於現有版本）
+    const parentInfoDiv = document.getElementById('versionParentInfo');
+    if (parentInfoDiv) {
+      if (!isNewVersion) {
+        try {
+          const parentVersion = await this.versionManager.getVersion(this.selectedVersionId);
+          if (parentVersion) {
+            const parentLabel = parentVersion.label || parentVersion.versionId.substring(0, 8);
+            parentInfoDiv.innerHTML = `
+              <div style="background: #f0f7ff; padding: 12px; border-radius: 6px; margin-bottom: 16px; border-left: 3px solid #0066cc;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                  <span style="font-size: 16px;">📌</span>
+                  <strong style="color: #0066cc;">基於版本：</strong>
+                  <span style="color: #333;">${parentLabel}</span>
+                </div>
+                <div style="font-size: 12px; color: #666; margin-left: 24px;">
+                  新版本將作為此版本的子版本儲存
+                </div>
+              </div>
+            `;
+          } else {
+            parentInfoDiv.innerHTML = '';
+          }
+        } catch (error) {
+          console.error('讀取父版本資訊失敗:', error);
+          parentInfoDiv.innerHTML = '';
+        }
+      } else {
+        parentInfoDiv.innerHTML = '';
+      }
+    }
+    
+    // 顯示對話框
     document.getElementById('newVersionModal').style.display = 'flex';
+    
+    // 焦點放在標籤輸入框
+    setTimeout(() => {
+      document.getElementById('newLabel').focus();
+    }, 100);
   }
 
   /**
