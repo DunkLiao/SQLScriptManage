@@ -1,475 +1,145 @@
-# SQL 版本控管工具
+## SQLScriptManage
 
-<div align="center">
+一個純前端的 SQL 腳本版本管理工具，透過瀏覽器 IndexedDB 儲存與比對版本，支援專案化管理、差異檢視、匯入匯出與完整備份/還原。無需後端，直接以瀏覽器載入即可使用。
 
-📋 **一個輕量級、功能完整的 SQL 腳本版本控制系統**
+### 功能特色
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](https://github.com/yourusername/SQLScriptManage)
+- 專案化管理：建立/切換/刪除專案，版本彼此隔離。
+- 版本控管：儲存版本（快照或差異模式），提供標籤、批註與哈希驗證。
+- 差異比對：在主頁並排比對，或開啟獨立差異頁 `diff.html?from=<v1>&to=<v2>` 檢視行級 diff。
+- 匯出/匯入：支援單專案匯出、選擇性匯出、多專案導入，檔案具備校驗碼；衝突可選跳過/覆蓋/合併。
+- 完整備份/還原：匯出整個資料庫（專案/版本/標籤/批註/元數據），可選清空後還原。
+- 編輯器工具：整合 Monaco Editor、SQL 格式化、主題切換、同步捲動與分割視圖。
 
-[功能特性](#功能特性) • [快速開始](#快速開始) • [使用說明](#使用說明) • [技術架構](#技術架構)
+### 系統概覽
 
-</div>
-
----
-
-## 📖 專案簡介
-
-SQL 版本控管工具是一個基於瀏覽器的 SQL 腳本版本控制系統,提供類似 Git 的版本管理功能,專為資料庫開發人員設計。它允許您追蹤 SQL 腳本的歷史變更、比較不同版本之間的差異,並輕鬆回溯到任何歷史版本。
-
-### ✨ 核心亮點
-
-- 🌐 **純瀏覽器運行** - 無需後端服務器,所有數據本地存儲
-- 🔍 **智能差異比對** - 基於 Myers 演算法的高精度差異檢測
-- 💾 **混合存儲策略** - 自動優化差異/完整內容存儲模式
-- 🏷️ **版本標籤管理** - 支持版本標記、搜索和組織
-- 🔐 **數據完整性** - SHA-256 哈希驗證確保數據可靠性
-
----
-
-## 🎯 功能特性
-
-### 版本管理
-
-- ✅ **新增版本** - 保存 SQL 腳本快照,包含標籤、描述、作者等元數據
-- ✅ **版本列表** - 時間線視圖顯示所有歷史版本
-- ✅ **版本詳情** - 查看完整的版本信息和統計數據
-- ✅ **版本回溯** - 一鍵恢復到任意歷史版本
-- ✅ **版本刪除** - 支持刪除不需要的版本記錄
-
-### 差異比對
-
-- 🔍 **行級差異檢測** - 精確識別新增、修改、刪除的代碼行
-- 🔍 **雙版本比較** - 選擇任意兩個版本進行對比分析
-- 🔍 **差異統計** - 顯示新增/刪除行數統計
-- 🔍 **視覺化呈現** - 直觀的差異高亮顯示
-
-### SQL 編輯器
-
-- ✏️ **語法格式化** - 自動格式化 SQL 關鍵字
-- ✏️ **實時統計** - 顯示行數、字元數統計
-- ✏️ **快速清空** - 一鍵清除編輯器內容
-
-### 導入導出（JSON Only）
-
-- 📤 **導出 JSON** - 匯出完整的元數據、版本、標籤與批註
-- 📥 **導入 JSON** - 從 JSON 檔案恢復版本歷史
-- 📥 **衝突處理** - 智能檢測並處理導入衝突
-
-### 數據存儲
-
-- 💾 **IndexedDB** - 使用瀏覽器原生數據庫存儲
-- 💾 **差異壓縮** - 自動識別適合差異存儲的版本
-- 💾 **快照模式** - 重要版本可建立完整快照
-- 💾 **數據校驗** - SHA-256 哈希確保數據完整性
-
----
-
-## 🚀 快速開始
-
-### 系統需求
-
-- 現代瀏覽器 (Chrome 80+, Firefox 75+, Edge 80+, Safari 13+)
-- 支持 IndexedDB 和 ES6+ JavaScript
-- 網絡連接 (僅首次加載 CDN 資源時需要)
-
-### 安裝步驟
-
-1. **克隆專案**
-
-   ```bash
-   git clone https://github.com/DunkLiao/SQLScriptManage.git
-   cd SQLScriptManage
-   ```
-
-2. **啟動應用**
-
-   直接打開 HTML 檔案
-
-   ```bash
-   # 雙擊打開 index.html
-   # 或使用瀏覽器打開 file:///path/to/index.html
-   ```
-
-3. **開始使用**
-   - 在 SQL 編輯器中輸入或貼上 SQL 腳本
-   - 點擊「新增版本」保存第一個版本
-   - 修改 SQL 內容後再次保存,建立版本歷史
-
----
-
-## 📚 使用說明
-
-### 基本工作流程
-
-1. **創建第一個版本**
-
-   ```
-   1. 在 SQL 編輯器中輸入腳本
-   2. 點擊頂部導航欄的「新增版本」按鈕
-   3. 填寫版本標籤(如 v1.0.0)和作者信息
-   4. 點擊「保存版本」
-   ```
-
-2. **修改並保存新版本**
-
-   ```
-   1. 在編輯器中修改 SQL 內容
-   2. 再次點擊「新增版本」
-   3. 輸入新的版本標籤(如 v1.1.0)
-   4. 系統自動計算差異並保存
-   ```
-
-3. **查看版本歷史**
-
-   ```
-   1. 右側版本列表顯示所有歷史版本
-   2. 點擊任意版本查看詳細信息
-   3. 編輯器自動載入該版本的 SQL 內容
-   ```
-
-4. **比較版本差異**
-   ```
-   1. 點擊「差異比對」按鈕
-   2. 選擇要比較的兩個版本
-   3. 點擊「執行比對」
-   4. 查看差異高亮顯示結果
-   ```
-
-### 進階功能
-
-#### 導出版本歷史（JSON）
-
-```
-1. 點擊頂部導航欄「導出」按鈕
-2. 勾選需要的選項（標籤 / 批註）
-3. 點擊「開始導出」下載單一 .json 檔案
-```
-
-#### 導入版本歷史（JSON）
-
-```
-1. 點擊頂部導航欄「導入」按鈕
-2. 選擇 JSON 檔案
-3. 系統自動檢測版本衝突
-4. 選擇衝突處理策略（跳過 / 覆蓋 / 合併）
-5. 確認導入完成
-```
-
-#### 版本回溯
-
-```
-1. 在版本列表中選擇要回溯的版本
-2. 點擊「回溯版本」按鈕
-3. 編輯器自動載入該版本的內容
-4. 可選擇保存為新版本或直接使用
-```
-
----
-
-## 🏗️ 技術架構
-
-### 專案結構
-
-```
-SQLScriptManage/
-├── index.html              # 主頁面
-├── README.md              # 專案說明文件
-├── css/
-│   └── styles.css         # 全局樣式表
-├── js/
-│   ├── app.js             # 主應用控制器
-│   └── modules/
-│       ├── database.js    # IndexedDB 數據庫管理
-│       ├── diffEngine.js  # 差異比對引擎
-│       ├── versionManager.js  # 版本管理核心
-│       └── importExport.js    # 導入導出功能
-└── lib/                   # 第三方庫(目前為空,使用 CDN)
-```
+- 架構：純前端（HTML/CSS/JS）+ IndexedDB 儲存，無需伺服器。
+- 主要流程：專案切換 → 編輯 SQL → 保存版本（快照/差異）→ 比對 → 匯出/備份 → 還原/導入。
+- 依賴：diff-match-patch、Monaco Editor、sql-formatter、原生 IndexedDB API。
 
 ### 技術棧
 
-#### 前端技術
+- 前端：原生 HTML/CSS/JavaScript，無框架。
+- 編輯器：Monaco Editor（支援多分頁、同步捲動、分割視圖）。
+- Diff：diff-match-patch 行級差異與摘要。
+- SQL 工具：sql-formatter（格式化），自訂 normalize 邏輯減少虛假差異。
+- 儲存：IndexedDB（projects/versions/tags/comments/metadata ObjectStore）。
+- 其他：原生 File/Blob API 下載、localStorage 記錄當前專案。
 
-- **HTML5** - 語義化標記
-- **CSS3** - 響應式設計、Flexbox 布局、CSS 變數
-- **JavaScript ES6+** - 模塊化、異步處理、類語法
+### 核心流程圖（文字版）
 
-#### 核心庫
+```
+啟動
+   └─ 載入 index.html → init SQLVersionApp
+          ├─ 初始化 DatabaseManager（IndexedDB v3）
+          ├─ 初始化 ProjectManager（載入/建立專案）
+          ├─ 初始化 VersionManager（快照/差異策略）
+          ├─ 初始化 ImportExportManager（匯出/導入/備份）
+          └─ 綁定 UI/Monaco/事件
 
-- **diff-match-patch** (1.0.5) - Google 開源的 diff 演算法庫
-- **IndexedDB API** - 瀏覽器原生數據庫
-- **Web Crypto API** - SHA-256 哈希計算
-
-#### 可選庫
-
-（目前無）
-
-### 架構設計
-
-#### 模塊化設計
-
-```javascript
-// 1. 數據庫層 (database.js)
-class DatabaseManager {
-  - initialize()          // 初始化 IndexedDB
-  - saveVersion()         // 保存版本記錄
-  - getVersion()          // 獲取版本記錄
-  - getAllVersions()      // 獲取所有版本
-  - deleteVersion()       // 刪除版本
-  - getVersionChain()     // 獲取版本鏈
-}
-
-// 2. 差異引擎 (diffEngine.js)
-class SQLDiffEngine {
-  - computeDiff()         // 計算差異
-  - applyDiff()           // 應用差異重建內容
-  - normalizeSql()        // SQL 規範化
-  - computeHash()         // 計算 SHA-256 哈希
-  - verifyHash()          // 驗證哈希
-}
-
-// 3. 版本管理 (versionManager.js)
-class VersionManager {
-  - saveVersion()         // 保存新版本
-  - getVersionContent()   // 獲取版本完整內容
-  - compareVersions()     // 比較兩個版本
-  - revertToVersion()     // 回溯版本
-  - updateVersionLabel()  // 更新版本標籤
-}
-
-// 4. 導入導出 (importExport.js)
-class ImportExportManager {
-  - exportToJSON()        // 導出為 JSON
-  - importFromJSON()      // 從 JSON 導入
-  - downloadFile()        // 檔案下載
-  - _detectConflicts()    // 檢測導入衝突
-}
-
-// 5. 應用控制器 (app.js)
-class SQLVersionApp {
-  - init()                // 初始化應用
-  - bindUIEvents()        // 綁定 UI 事件
-  - loadVersionTree()     // 加載版本列表
-  - selectVersion()       // 選擇版本
-  - confirmSaveVersion()  // 確認保存版本
-}
+日常操作
+   ├─ 新建或切換專案
+   ├─ 在 Monaco 編輯 SQL
+   ├─ 保存版本
+   │    ├─ 規範化 SQL + 計算 diff/hash
+   │    ├─ 判斷快照/差異儲存
+   │    └─ 寫入 versions（含 fullContent + diffData）
+   ├─ 比對版本
+   │    ├─ 主頁並排比對；或
+   │    └─ 開啟 diff.html?from=...&to=...
+   ├─ 標籤/批註管理（tags/comments）
+   ├─ 匯出
+   │    ├─ 單專案 JSON（含校驗碼）
+   │    ├─ 選擇性匯出（多專案/時間區間/版本）
+   │    └─ 完整備份（含 metadata）
+   └─ 導入/還原
+          ├─ 校驗 checksum → 檢測衝突（跳過/覆蓋/合併）
+          └─ 可指定目標專案或清空後還原
 ```
 
-#### 數據模型
+### USLA（使用場景與服務層級假設）
 
-**版本記錄 (Version Record)**
+- 可用性：依賴瀏覽器資料儲存，不提供雲端同步；資料清除瀏覽器快取即會遺失，建議每日至少一次匯出。
+- 啟動時間：在主流桌面瀏覽器載入 index.html，首次初始化預期 < 2 秒（取決於瀏覽器與硬體）。
+- 編輯體驗：Monaco Editor 在 5–10k 行 SQL 內應維持流暢；更大檔案建議分段保存。
+- 儲存/比對：單次版本保存/比對預期 < 1 秒（常見 1–2k 行 SQL）。
+- 儲存上限：受限於 IndexedDB 配額（依瀏覽器/磁碟而異），建議定期完整備份並清理無用專案。
+- 相容性：已知支援 Chromium 系列（Chrome/Edge），Safari/Firefox 行為未全面驗證。
 
-```javascript
-{
-  versionId: String,         // 版本 ID (v_timestamp_sequence)
-  parentVersionId: String,   // 父版本 ID
-  timestamp: Number,         // 時間戳
-  label: String,             // 版本標籤(唯一)
-  description: String,       // 描述
-  author: String,            // 作者
-  contentHash: String,       // SHA-256 哈希
-  isDeltaMode: Boolean,      // 是否使用差異模式
-  diffData: Array,           // 差異數據
-  fullContent: String,       // 完整內容
-  stats: {
-    linesAdded: Number,      // 新增行數
-    linesRemoved: Number,    // 刪除行數
-    linesUnchanged: Number,  // 不變行數
-    totalLines: Number,      // 總行數
-    diffSize: Number         // 差異數據大小
-  },
-  tags: Array,               // 標籤列表
-  depth: Number,             // 版本深度
-  createdAt: Number,         // 創建時間
-  updatedAt: Number          // 更新時間
-}
-```
+### 角色與操作流程（縮略）
 
-**差異數據格式**
+1. 作者：撰寫 SQL → 保存版本（標籤/作者/描述）。
+2. 審閱者：選取兩版本 → 差異比對 → 透過標籤/批註記錄意見。
+3. 管理者：定期匯出單專案或完整備份；需要時執行還原或跨專案導入。
 
-```javascript
-// lineDiffs: Array<[op, content]>
-// op: -1=刪除, 0=不變, 1=插入
-[
-  [0, "SELECT * FROM users"], // 不變
-  [-1, "WHERE status = 'active'"], // 刪除
-  [1, "WHERE status = 'enabled'"], // 插入
-  [0, "ORDER BY created_at DESC"], // 不變
-];
-```
+### 版本與儲存策略補充
 
-### 存儲優化策略
+- 儲存格式：版本同時保存 `fullContent` 與 `diffData`，避免重建鏈過深導致性能問題。
+- 快照策略：當 diff 大於 500KB、版本深度 > 10、或刪除占比 > 50% 時強制完整快照。
+- 校驗：保存及載入時使用 SHA-256；匯入時以 checksum 驗證檔案。
+- 壓縮維護：`compactLinearChain` 可將長鏈檢查點化，降低讀取成本。
 
-#### 混合存儲模式
+### 操作指南（更細步驟）
 
-系統根據差異大小自動選擇存儲策略:
+1. 啟動：以本機靜態伺服器開啟專案根目錄後造訪 `index.html`。
+2. 專案：右上專案選擇器切換或「新增專案」建立；刪除需先換到其他專案。
+3. 編輯：在 Monaco 編輯區輸入 SQL，必要時點「格式化」整理排版。
+4. 保存：點「保存版本」，填標籤/作者/描述；系統自動決策快照/差異並驗證哈希。
+5. 比對：勾選兩版本 → 「差異比對」開新頁；或右鍵「與當前版本比較」並排檢視。
+6. 標籤/批註：於版本列表或差異頁新增，便於後續搜尋與審閱。
+7. 匯出：
+   - 「匯出」：單專案 JSON（可含標籤/批註）。
+   - 「更多 → 完整備份」：全專案/全版本/標籤/批註/metadata。
+   - 「選擇性匯出」：按專案/版本/時間區間篩選。
+8. 導入/還原：選檔後檢視衝突，選擇跳過/覆蓋/合併；完整還原可先清空現有資料。
 
-```javascript
-// 差異模式:適合小幅修改
-if (diffSize < fullContentSize * 0.6) {
-  存儲: 差異數據 + 完整內容(驗證用);
-  優點: (節省空間, 版本鏈完整);
-}
+### 風險與建議
 
-// 快照模式:適合大幅修改
-else {
-  存儲: 完整內容;
-  優點: (快速訪問, 無需重建);
-}
-```
+- 本地儲存風險：瀏覽器清除站點資料將失去所有內容，請建立備份習慣（至少每日）。
+- 瀏覽器配額：大型專案可能碰到 IndexedDB 配額限制，建議分專案管理並定期匯出。
+- 跨裝置：無內建同步，跨裝置需透過匯出/導入或完整備份檔案搬遷。
+- 相容性：若需 Safari/Firefox 支援，請先驗證 IndexedDB 實作行為。
 
-#### 差異演算法
+### 模組與檔案
 
-- **Myers 差異演算法** - O(ND) 時間複雜度,最優化差異序列
-- **語義清理** - 減少虛假差異,提高可讀性
-- **效率清理** - 優化差異數據結構
+- 主介面與事件協調： [js/app.js](js/app.js) — 初始化依賴、Monaco、UI 事件、版本樹、比對、備份還原、專案選擇器。
+- 版本管理： [js/modules/versionManager.js](js/modules/versionManager.js) — 儲存版本（同時存完整內容與差異）、內容重建、搜尋、比對、版本鏈壓縮、標籤與批註。
+- 差異引擎： [js/modules/diffEngine.js](js/modules/diffEngine.js) — 基於 diff-match-patch 的行級 diff、哈希、摘要與快照決策。
+- 導入導出： [js/modules/importExport.js](js/modules/importExport.js) — 單專案匯出、完整匯出、選擇性匯出、多專案導入與衝突處理。
+- 專案管理： [js/modules/projectManager.js](js/modules/projectManager.js) — 專案建立/切換/刪除/改名，維護根版本。
+- 資料層（IndexedDB）： [js/modules/database.js](js/modules/database.js) — ObjectStore 建立、CRUD、遷移（v3 新增專案隔離與索引）。
+- 獨立差異頁： [js/diffPage.js](js/diffPage.js) — 依 `from`/`to` 參數載入版本、忽略空白/大小寫選項、表格化渲染與匯出。
 
----
+### 資料儲存與版本策略
 
-## 🎨 UI/UX 設計
+- 資料庫：IndexedDB，主要 ObjectStore 包含 `projects`、`versions`、`tags`、`comments`、`metadata`。
+- 版本記錄：同時保存完整內容 `fullContent` 及差異 `diffData`，附 SHA-256 `contentHash`。
+- 快照決策：依差異大小、版本深度、刪除比例決定是否改用完整快照（避免深鏈重建成本）。
+- 校驗：載入時會驗證內容哈希，異常將提示可能損壞。
 
-### 色彩系統
+### 使用方式
 
-```css
---primary: #9a0036; /* 品牌主色(紅色) */
---primary-light: #eebac0; /* 次要元素(粉紅) */
---primary-dark: #941c61; /* 深色變體(紫紅) */
---accent-gold: #d4a574; /* 強調色(金色) */
---accent-orange: #ff9800; /* 重要資訊(橙色) */
-```
+1. 準備：使用支援 IndexedDB 的現代瀏覽器（Chrome/Edge）；建議以本機靜態伺服器開啟專案根目錄（避免 `file://` 限制）。
+2. 啟動：在瀏覽器開啟 `index.html` 即可使用主介面；需要行級差異時可從主介面開啟或直接造訪 `diff.html?from=<版本ID>&to=<版本ID>`。
+3. 快速流程：
+   - 建立專案 → 在編輯器輸入 SQL → 按「保存版本」填寫標籤/作者 → 版本出現在列表。
+   - 勾選兩版本後點「差異比對」可並排檢視；或在右鍵選單「與當前版本比較」。
+   - 透過「匯出」可輸出單專案 JSON；「更多」→「完整備份」匯出全部資料；「完整還原」可從備份重建。
 
-### 布局結構
+### 匯出/還原重點
 
-- **響應式設計** - 適配不同屏幕尺寸
-- **雙欄布局** - 左側編輯器 + 右側版本列表
-- **卡片化設計** - 功能區塊清晰分離
-- **模態對話框** - 非侵入式交互
+- 單專案匯出：產生含校驗碼的 JSON，預設包含標籤與批註，可跨專案導入並指定目標專案。
+- 完整備份：包含全部專案/版本/標籤/批註/元數據；還原時可選擇清空現有資料或合併。
+- 選擇性匯出：可指定專案、版本或時間區間，並決定是否帶標籤/批註。
+- 衝突處理：導入時若版本 ID 已存在，可選擇跳過、覆蓋或合併，並提供校驗碼驗證。
 
-### 交互特性
+### 注意事項
 
-- **即時反饋** - 操作結果實時顯示
-- **視覺引導** - 清晰的按鈕圖標和狀態提示
-- **鍵盤支持** - Enter 鍵快速提交
-- **錯誤處理** - 友好的錯誤提示信息
+- 所有資料儲存在瀏覽器 IndexedDB，清除站點資料會移除所有版本與專案。
+- 不同瀏覽器或不同來源 (origin) 的資料彼此隔離；更換瀏覽器視為新環境。
+- 建議定期匯出或完整備份以防瀏覽器資料被清除。
 
----
+### 版權與授權
 
-## 🔒 數據安全
-
-### 數據完整性保障
-
-1. **SHA-256 哈希驗證**
-   - 每個版本計算內容哈希
-   - 讀取時驗證哈希值
-   - 檢測數據損壞
-
-2. **雙重存儲策略**
-   - 同時存儲差異和完整內容
-   - 差異重建失敗時使用完整內容
-   - 提供數據冗餘保護
-
-3. **導入導出校驗**
-   - 導出時生成 checksum
-   - 導入時驗證 checksum
-   - 防止數據傳輸損壞
-
-### 隱私保護
-
-- ✅ 所有數據存儲在本地瀏覽器
-- ✅ 不上傳任何數據到服務器
-- ✅ 支持離線使用
-- ✅ 用戶完全控制數據
-
----
-
-## 📋 未來規劃
-
-### 即將實現的功能
-
-- [ ] **分支管理** - 支持多分支開發
-- [ ] **標籤系統** - 為版本添加自定義標籤
-- [ ] **批註功能** - 為特定代碼行添加註解
-- [ ] **衝突解決** - 圖形化的合併衝突解決工具
-- [ ] **協作功能** - 多人協作和權限管理
-- [ ] **SQL 語法高亮** - 集成 CodeMirror 或 Monaco Editor
-- [ ] **自動格式化** - 專業的 SQL 格式化工具
-- [ ] **歷史圖表** - 可視化版本演進圖
-- [ ] **性能優化** - 大型 SQL 文件的虛擬滾動
-- [ ] **雲端同步** - 可選的雲端備份功能
-
-### 技術改進計劃
-
-- [ ] TypeScript 重構 - 提供類型安全
-- [ ] 單元測試 - Jest/Mocha 測試覆蓋
-- [ ] E2E 測試 - Playwright 自動化測試
-- [ ] PWA 支持 - 離線可用、可安裝
-- [ ] Service Worker - 資源緩存
-- [ ] WebAssembly - 性能關鍵路徑優化
-
----
-
-## 🤝 貢獻指南
-
-歡迎各種形式的貢獻!
-
-### 如何貢獻
-
-1. Fork 本專案
-2. 創建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 提交 Pull Request
-
-### 代碼規範
-
-- 使用 ES6+ 語法
-- 遵循 JavaScript Standard Style
-- 添加必要的註解
-- 確保代碼可讀性
-
-### 問題回報
-
-如果發現 bug 或有功能建議,請[提交 Issue](https://github.com/DunkLiao/SQLScriptManage/issues)。
-
----
-
-## 📄 授權協議
-
-本專案採用 [MIT License](LICENSE) 授權。
-
----
-
-## 👨‍💻 作者
-
-**您的名字**
-
-- GitHub: [@DunkLiao](https://github.com/DunkLiao)
-- Email: your.email@example.com
-
----
-
-## 🙏 致謝
-
-- [diff-match-patch](https://github.com/google/diff-match-patch) - Google 開源的差異演算法
-- [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) - W3C 標準的瀏覽器數據庫
-
----
-
-## 📞 支持
-
-如有任何問題或建議,歡迎通過以下方式聯繫:
-
-- 📧 Email: your.email@example.com
-- 💬 GitHub Issues: [提交問題](https://github.com/DunkLiao/SQLScriptManage/issues)
-- 📖 Wiki: [查看文檔](https://github.com/DunkLiao/SQLScriptManage/wiki)
-
----
-
-<div align="center">
-
-**如果這個專案對您有幫助,請給個 ⭐️ Star 支持一下!**
-
-Made with ❤️ by [Your Name]
-
-</div>
+- 版權所有 © 2026 DunkLiao。
+- 授權條款：MIT License。
