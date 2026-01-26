@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SQL 版本控管工具</title>
   <link rel="stylesheet" href="css/styles.css">
+  <!-- Monaco Editor 樣式 -->
+  <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css">
 </head>
 <body>
   <!-- ========== 導航欄 ========== -->
@@ -38,17 +40,17 @@
           <span class="icon">💾</span>
           <span>保存版本</span>
         </button>
-        <button class="btn btn-action" id="btnCompare">
+        <button class="btn btn-action" id="btnFormatSQL">
+          <span class="icon">🎨</span>
+          <span>格式化</span>
+        </button>
+        <button class="btn btn-action" id="btnCompareMode">
           <span class="icon">🔍</span>
-          <span>差異比對</span>
+          <span>比較模式</span>
         </button>
         <button class="btn btn-action" id="btnDeleteVersion">
           <span class="icon">🗑️</span>
           <span>刪除版本</span>
-        </button>
-        <button class="btn btn-action btn-danger" id="btnClearAllData">
-          <span class="icon">⚠️</span>
-          <span>清空全部資料</span>
         </button>
       </div>
     </div>
@@ -65,14 +67,21 @@
         <span class="icon">📤</span>
         <span>導入</span>
       </button>
-      <button class="btn btn-action" id="btnFullBackup" title="完整備份">
-        <span class="icon">💾</span>
-        <span>完整備份</span>
+      <button class="btn btn-nav" id="btnThemeToggle" title="切換主題">
+        <span class="icon">🌙</span>
+        <span>深色模式</span>
       </button>
-      <button class="btn btn-action" id="btnFullRestore" title="完整還原">
-        <span class="icon">♻️</span>
-        <span>完整還原</span>
-      </button>
+      <div class="dropdown">
+        <button class="btn btn-nav" id="btnMore" title="更多選項">
+          <span class="icon">⋯</span>
+        </button>
+        <div class="dropdown-menu" id="moreMenu" style="display: none;">
+          <button class="dropdown-item" id="btnCompare">差異比對</button>
+          <button class="dropdown-item" id="btnFullBackup">完整備份</button>
+          <button class="dropdown-item" id="btnFullRestore">完整還原</button>
+          <button class="dropdown-item" id="btnClearAllData">清空全部資料</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -81,21 +90,13 @@
     <!-- 左側：編輯器面板 -->
     <div class="editor-panel">
       <!-- SQL 編輯卡片 -->
-      <div class="card card-editor">
+      <div class="card card-editor" id="singleEditorCard">
         <div class="card-header">
           <h3>SQL 編輯器</h3>
-          <div class="editor-toolbar">
-            <button class="btn-icon" id="btnFormat" title="格式化">🎨</button>
-            <button class="btn-icon" id="btnClear" title="清空">🗑️</button>
-          </div>
         </div>
         <div class="card-body">
-          <textarea 
-            id="sqlEditor" 
-            class="sql-editor"
-            placeholder="在此輸入或貼上 SQL 腳本..."
-            spellcheck="false"
-          ></textarea>
+          <!-- Monaco Editor 容器 -->
+          <div id="monacoEditor" style="width: 100%; height: 500px;"></div>
           <div class="editor-stats">
             <span>行數: <strong id="lineCount">0</strong></span>
             <span class="stat-divider">|</span>
@@ -104,7 +105,51 @@
         </div>
       </div>
 
-      <!-- 工具欄移至頂部：原區塊已移除 -->
+      <!-- 分割視圖卡片 -->
+      <div class="card card-split-editor" id="splitEditorCard" style="display: none;">
+        <div class="card-header">
+          <h3>並排比較</h3>
+          <div class="split-controls">
+            <button class="btn btn-icon" id="btnSyncScroll" title="同步捲動">🔗</button>
+            <button class="btn btn-icon" id="btnCloseSplit" title="關閉分割視圖">✕</button>
+          </div>
+        </div>
+        <div class="card-body split-view-body">
+          <!-- 左側編輯器 -->
+          <div class="split-pane left-pane">
+            <div class="pane-header">
+              <span class="version-label" id="leftVersionLabel">版本 A</span>
+              <select id="leftVersionSelect" class="version-select">
+                <option value="">選擇版本...</option>
+              </select>
+            </div>
+            <div id="leftMonacoEditor" style="width: 100%; height: 500px;"></div>
+            <div class="editor-stats">
+              <span><strong id="leftLineCount">0</strong> 行</span>
+            </div>
+          </div>
+          
+          <!-- 分隔線 -->
+          <div class="split-divider" id="splitDivider"></div>
+          
+          <!-- 右側編輯器 -->
+          <div class="split-pane right-pane">
+            <div class="pane-header">
+              <span class="version-label" id="rightVersionLabel">版本 B</span>
+              <select id="rightVersionSelect" class="version-select">
+                <option value="">選擇版本...</option>
+              </select>
+            </div>
+            <div id="rightMonacoEditor" style="width: 100%; height: 500px;"></div>
+            <div class="editor-stats">
+              <span><strong id="rightLineCount">0</strong> 行</span>
+              <span class="stat-divider">|</span>
+              <span class="stat-added">+<span id="diffAdded">0</span></span>
+              <span class="stat-removed">-<span id="diffRemoved">0</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- 比對結果卡片（可折疊） -->
       <div class="card card-diff" id="diffPanel" style="display:none;">
@@ -150,6 +195,28 @@
           <p class="placeholder-text">選擇一個版本查看詳情</p>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ========== 狀態欄 ========== -->
+  <div class="status-bar">
+    <div class="status-left">
+      <span id="statusLanguage">SQL</span>
+      <span class="status-divider">|</span>
+      <span id="statusEncoding">UTF-8</span>
+    </div>
+    <div class="status-right">
+      <span id="statusPosition">行 1, 列 1</span>
+      <span class="status-divider">|</span>
+      <span id="statusSelection">已選擇 0</span>
+    </div>
+  </div>
+
+  <!-- ========== 右鍵選單 ========== -->
+  <div class="context-menu" id="contextMenu" style="display: none;">
+    <div class="context-menu-item" id="contextCompare">
+      <span class="icon">🔍</span>
+      <span>與當前版本比較</span>
     </div>
   </div>
 
@@ -475,8 +542,15 @@
   </div>
 
   <!-- ========== 腳本引入 ========== -->
-  <!-- diff-match-patch 庫 (使用 unpkg CDN) -->
+  <!-- 外部庫 -->
   <script src="https://unpkg.com/diff-match-patch@1.0.5/index.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sql-formatter@15.0.2/dist/sql-formatter.min.js"></script>
+  
+  <!-- Monaco Editor -->
+  <script>var require = { paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' } };</script>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.nls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.js"></script>
   
   <!-- 應用腳本 (確保依序加載) -->
   <script src="js/modules/database.js"></script>

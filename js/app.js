@@ -11,6 +11,14 @@ class SQLVersionApp {
     this.currentVersion = null;
     this.selectedVersionId = null;
     this.pendingImportData = null;  // v3 新增：待導入的數據
+    
+    // Monaco Editor 相關
+    this.monacoEditor = null;
+    this.leftMonacoEditor = null;
+    this.rightMonacoEditor = null;
+    this.isSplitView = false;
+    this.isSyncScroll = true;
+    this.currentTheme = 'light';
   }
 
   /**
@@ -71,6 +79,16 @@ class SQLVersionApp {
       this.bindUIEvents();
       console.log('✓ UI 事件綁定完成');
 
+      // 初始化 Monaco Editor
+      console.log('正在初始化 Monaco Editor...');
+      await this.initMonacoEditor();
+      console.log('✓ Monaco Editor 初始化完成');
+
+      // 加載並應用主題
+      console.log('正在加載主題設定...');
+      await this.loadTheme();
+      console.log('✓ 主題設定完成');
+
       // 加載版本列表
       console.log('正在加載版本列表...');
       await this.loadVersionTree();
@@ -110,25 +128,111 @@ class SQLVersionApp {
    * 綁定 UI 事件
    */
   bindUIEvents() {
-    // SQL 編輯器
-    const sqlEditor = document.getElementById('sqlEditor');
-    sqlEditor.addEventListener('input', () => this.updateEditorStats());
-
-    document.getElementById('btnFormat').addEventListener('click', () => this.formatSQL());
-    document.getElementById('btnClear').addEventListener('click', () => this.clearSQL());
-
     // 工具欄按鈕
-    document.getElementById('btnSaveVersion').addEventListener('click', () => this.showSaveVersionDialog());
-    document.getElementById('btnCompare').addEventListener('click', () => this.showCompareDialog());
-    document.getElementById('btnDeleteVersion').addEventListener('click', () => this.deleteVersion());
+    const btnSaveVersion = document.getElementById('btnSaveVersion');
+    if (btnSaveVersion) {
+      btnSaveVersion.addEventListener('click', () => this.showSaveVersionDialog());
+    }
+    const btnFormatSQL = document.getElementById('btnFormatSQL');
+    if (btnFormatSQL) {
+      btnFormatSQL.addEventListener('click', () => this.formatSQL());
+    }
+    const btnCompareMode = document.getElementById('btnCompareMode');
+    if (btnCompareMode) {
+      btnCompareMode.addEventListener('click', () => this.toggleCompareMode());
+    }
+    const btnDeleteVersion = document.getElementById('btnDeleteVersion');
+    if (btnDeleteVersion) {
+      btnDeleteVersion.addEventListener('click', () => this.deleteVersion());
+    }
+    
+    // 主題切換
+    const btnThemeToggle = document.getElementById('btnThemeToggle');
+    if (btnThemeToggle) {
+      btnThemeToggle.addEventListener('click', () => this.toggleTheme());
+    }
+    
+    // 更多選單
+    const btnMore = document.getElementById('btnMore');
+    const moreMenu = document.getElementById('moreMenu');
+    if (btnMore && moreMenu) {
+      btnMore.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moreMenu.style.display = moreMenu.style.display === 'none' ? 'block' : 'none';
+      });
+      
+      // 點擊其他地方關閉選單
+      document.addEventListener('click', (e) => {
+        if (!btnMore.contains(e.target)) {
+          moreMenu.style.display = 'none';
+        }
+      });
+    }
+    
+    // 分割視圖控制
+    const btnCloseSplit = document.getElementById('btnCloseSplit');
+    if (btnCloseSplit) {
+      btnCloseSplit.addEventListener('click', () => this.closeSplitView());
+    }
+    
+    const btnSyncScroll = document.getElementById('btnSyncScroll');
+    if (btnSyncScroll) {
+      btnSyncScroll.addEventListener('click', () => this.toggleSyncScroll());
+    }
+    
+    // 版本選擇下拉
+    const leftVersionSelect = document.getElementById('leftVersionSelect');
+    if (leftVersionSelect) {
+      leftVersionSelect.addEventListener('change', (e) => this.loadVersionToSplit('left', e.target.value));
+    }
+    
+    const rightVersionSelect = document.getElementById('rightVersionSelect');
+    if (rightVersionSelect) {
+      rightVersionSelect.addEventListener('change', (e) => this.loadVersionToSplit('right', e.target.value));
+    }
 
     // 導航欄按鈕
-    document.getElementById('btnExport').addEventListener('click', () => this.showExportDialog());
-    document.getElementById('btnImport').addEventListener('click', () => this.showImportDialog());
+    const btnExport = document.getElementById('btnExport');
+    if (btnExport) {
+      btnExport.addEventListener('click', () => this.showExportDialog());
+    }
+    const btnImport = document.getElementById('btnImport');
+    if (btnImport) {
+      btnImport.addEventListener('click', () => this.showImportDialog());
+    }
     
-    // 完整備份與還原按鈕
-    document.getElementById('btnFullBackup').addEventListener('click', () => this.showFullBackupDialog());
-    document.getElementById('btnFullRestore').addEventListener('click', () => this.showFullRestoreDialog());
+    // 從更多選單中觸發的功能
+    const btnCompare = document.getElementById('btnCompare');
+    if (btnCompare && moreMenu) {
+      btnCompare.addEventListener('click', () => {
+        moreMenu.style.display = 'none';
+        this.showCompareDialog();
+      });
+    }
+    const btnFullBackup = document.getElementById('btnFullBackup');
+    if (btnFullBackup && moreMenu) {
+      btnFullBackup.addEventListener('click', () => {
+        moreMenu.style.display = 'none';
+        this.showFullBackupDialog();
+      });
+    }
+    const btnFullRestore = document.getElementById('btnFullRestore');
+    if (btnFullRestore && moreMenu) {
+      btnFullRestore.addEventListener('click', () => {
+        moreMenu.style.display = 'none';
+        this.showFullRestoreDialog();
+      });
+    }
+    const btnClearAllData = document.getElementById('btnClearAllData');
+    if (btnClearAllData && moreMenu) {
+      btnClearAllData.addEventListener('click', () => {
+        moreMenu.style.display = 'none';
+        const clearAllModal = document.getElementById('clearAllModal');
+        if (clearAllModal) {
+          clearAllModal.style.display = 'flex';
+        }
+      });
+    }
 
     // v3 新增：專案管理事件監聽
     const projectSelector = document.getElementById('projectSelector');
@@ -153,13 +257,39 @@ class SQLVersionApp {
       initStatus.addEventListener('click', () => this.reinitializeApp());
     }
 
-    // 版本資訊區域已移除
-
     // 版本列表
-    document.getElementById('btnSearch').addEventListener('click', () => this.searchVersions());
-    document.getElementById('searchVersions').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') this.searchVersions();
-    });
+    const btnSearch = document.getElementById('btnSearch');
+    if (btnSearch) {
+      btnSearch.addEventListener('click', () => this.searchVersions());
+    }
+    const searchVersions = document.getElementById('searchVersions');
+    if (searchVersions) {
+      searchVersions.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') this.searchVersions();
+      });
+    }
+    
+    // 右鍵選單
+    const contextMenu = document.getElementById('contextMenu');
+    if (contextMenu) {
+      document.addEventListener('contextmenu', (e) => {
+        contextMenu.style.display = 'none';
+      });
+    }
+    
+    const contextCompare = document.getElementById('contextCompare');
+    if (contextCompare && contextMenu) {
+      contextCompare.addEventListener('click', () => {
+        const versionId = contextMenu.dataset.versionId;
+        contextMenu.style.display = 'none';
+        if (versionId) {
+          this.compareWithCurrent(versionId);
+        }
+      });
+    }
+    
+    // 快捷鍵
+    document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
 
     // 模態對話框
     this.bindDialogEvents();
@@ -207,45 +337,84 @@ class SQLVersionApp {
    */
   bindDialogEvents() {
     // 新增版本對話框
-    document.getElementById('btnCloseModal').addEventListener('click', () => {
-      document.getElementById('newVersionModal').style.display = 'none';
-    });
-    document.getElementById('btnCancelSave').addEventListener('click', () => {
-      document.getElementById('newVersionModal').style.display = 'none';
-    });
-    document.getElementById('btnConfirmSave').addEventListener('click', () => this.confirmSaveVersion());
+    const btnCloseModal = document.getElementById('btnCloseModal');
+    if (btnCloseModal) {
+      btnCloseModal.addEventListener('click', () => {
+        document.getElementById('newVersionModal').style.display = 'none';
+      });
+    }
+    const btnCancelSave = document.getElementById('btnCancelSave');
+    if (btnCancelSave) {
+      btnCancelSave.addEventListener('click', () => {
+        document.getElementById('newVersionModal').style.display = 'none';
+      });
+    }
+    const btnConfirmSave = document.getElementById('btnConfirmSave');
+    if (btnConfirmSave) {
+      btnConfirmSave.addEventListener('click', () => this.confirmSaveVersion());
+    }
 
     // 比對對話框
-    document.getElementById('btnCloseCompare').addEventListener('click', () => {
-      document.getElementById('compareModal').style.display = 'none';
-    });
-    document.getElementById('btnCancelCompare').addEventListener('click', () => {
-      document.getElementById('compareModal').style.display = 'none';
-    });
-    document.getElementById('btnDoCompare').addEventListener('click', () => this.performComparison());
+    const btnCloseCompare = document.getElementById('btnCloseCompare');
+    if (btnCloseCompare) {
+      btnCloseCompare.addEventListener('click', () => {
+        document.getElementById('compareModal').style.display = 'none';
+      });
+    }
+    const btnCancelCompare = document.getElementById('btnCancelCompare');
+    if (btnCancelCompare) {
+      btnCancelCompare.addEventListener('click', () => {
+        document.getElementById('compareModal').style.display = 'none';
+      });
+    }
+    const btnDoCompare = document.getElementById('btnDoCompare');
+    if (btnDoCompare) {
+      btnDoCompare.addEventListener('click', () => this.performComparison());
+    }
 
     // 導出對話框
-    document.getElementById('btnCloseExport').addEventListener('click', () => {
-      document.getElementById('exportModal').style.display = 'none';
-    });
-    document.getElementById('btnCancelExport').addEventListener('click', () => {
-      document.getElementById('exportModal').style.display = 'none';
-    });
-    document.getElementById('btnStartExport').addEventListener('click', () => this.performExport());
+    const btnCloseExport = document.getElementById('btnCloseExport');
+    if (btnCloseExport) {
+      btnCloseExport.addEventListener('click', () => {
+        document.getElementById('exportModal').style.display = 'none';
+      });
+    }
+    const btnCancelExport = document.getElementById('btnCancelExport');
+    if (btnCancelExport) {
+      btnCancelExport.addEventListener('click', () => {
+        document.getElementById('exportModal').style.display = 'none';
+      });
+    }
+    const btnStartExport = document.getElementById('btnStartExport');
+    if (btnStartExport) {
+      btnStartExport.addEventListener('click', () => this.performExport());
+    }
 
     // 導入檔案輸入
-    document.getElementById('importFileInput').addEventListener('change', (e) => {
-      this.handleImportFile(e);
-    });
+    const importFileInput = document.getElementById('importFileInput');
+    if (importFileInput) {
+      importFileInput.addEventListener('change', (e) => {
+        this.handleImportFile(e);
+      });
+    }
 
     // 衝突確認對話框
-    document.getElementById('btnCloseConflict').addEventListener('click', () => {
-      document.getElementById('conflictModal').style.display = 'none';
-    });
-    document.getElementById('btnCancelImport').addEventListener('click', () => {
-      document.getElementById('conflictModal').style.display = 'none';
-    });
-    document.getElementById('btnConfirmImport').addEventListener('click', () => this.confirmImport());
+    const btnCloseConflict = document.getElementById('btnCloseConflict');
+    if (btnCloseConflict) {
+      btnCloseConflict.addEventListener('click', () => {
+        document.getElementById('conflictModal').style.display = 'none';
+      });
+    }
+    const btnCancelImport = document.getElementById('btnCancelImport');
+    if (btnCancelImport) {
+      btnCancelImport.addEventListener('click', () => {
+        document.getElementById('conflictModal').style.display = 'none';
+      });
+    }
+    const btnConfirmImport = document.getElementById('btnConfirmImport');
+    if (btnConfirmImport) {
+      btnConfirmImport.addEventListener('click', () => this.confirmImport());
+    }
 
     // 差異面板關閉
     const btnCloseDiff = document.getElementById('btnCloseDiff');
@@ -256,17 +425,23 @@ class SQLVersionApp {
       });
     }
 
-    // 清空全部資料對話框
-    document.getElementById('btnClearAllData').addEventListener('click', () => {
-      document.getElementById('clearAllModal').style.display = 'flex';
-    });
-    document.getElementById('btnCloseClearAll').addEventListener('click', () => {
-      document.getElementById('clearAllModal').style.display = 'none';
-    });
-    document.getElementById('btnCancelClearAll').addEventListener('click', () => {
-      document.getElementById('clearAllModal').style.display = 'none';
-    });
-    document.getElementById('btnConfirmClearAll').addEventListener('click', () => this.confirmClearAllData());
+    // 清空全部資料對話框（按鈕事件已在 bindUIEvents 中綁定）
+    const btnCloseClearAll = document.getElementById('btnCloseClearAll');
+    if (btnCloseClearAll) {
+      btnCloseClearAll.addEventListener('click', () => {
+        document.getElementById('clearAllModal').style.display = 'none';
+      });
+    }
+    const btnCancelClearAll = document.getElementById('btnCancelClearAll');
+    if (btnCancelClearAll) {
+      btnCancelClearAll.addEventListener('click', () => {
+        document.getElementById('clearAllModal').style.display = 'none';
+      });
+    }
+    const btnConfirmClearAll = document.getElementById('btnConfirmClearAll');
+    if (btnConfirmClearAll) {
+      btnConfirmClearAll.addEventListener('click', () => this.confirmClearAllData());
+    }
 
     // v3 新增：導入目標專案選擇對話框（備用關閉按鈕）
     const btnCloseImportProject = document.getElementById('btnCloseImportProject');
@@ -277,76 +452,47 @@ class SQLVersionApp {
     }
 
     // 完整備份對話框
-    document.getElementById('btnCloseFullBackup').addEventListener('click', () => {
-      document.getElementById('fullBackupModal').style.display = 'none';
-    });
-    document.getElementById('btnCancelFullBackup').addEventListener('click', () => {
-      document.getElementById('fullBackupModal').style.display = 'none';
-    });
-    document.getElementById('btnConfirmFullBackup').addEventListener('click', () => this.performFullBackup());
+    const btnCloseFullBackup = document.getElementById('btnCloseFullBackup');
+    if (btnCloseFullBackup) {
+      btnCloseFullBackup.addEventListener('click', () => {
+        document.getElementById('fullBackupModal').style.display = 'none';
+      });
+    }
+    const btnCancelFullBackup = document.getElementById('btnCancelFullBackup');
+    if (btnCancelFullBackup) {
+      btnCancelFullBackup.addEventListener('click', () => {
+        document.getElementById('fullBackupModal').style.display = 'none';
+      });
+    }
+    const btnConfirmFullBackup = document.getElementById('btnConfirmFullBackup');
+    if (btnConfirmFullBackup) {
+      btnConfirmFullBackup.addEventListener('click', () => this.performFullBackup());
+    }
 
     // 完整還原對話框
-    document.getElementById('btnCloseFullRestore').addEventListener('click', () => {
-      document.getElementById('fullRestoreModal').style.display = 'none';
-    });
-    document.getElementById('btnCancelFullRestore').addEventListener('click', () => {
-      document.getElementById('fullRestoreModal').style.display = 'none';
-    });
-    document.getElementById('btnConfirmFullRestore').addEventListener('click', () => this.performFullRestore());
+    const btnCloseFullRestore = document.getElementById('btnCloseFullRestore');
+    if (btnCloseFullRestore) {
+      btnCloseFullRestore.addEventListener('click', () => {
+        document.getElementById('fullRestoreModal').style.display = 'none';
+      });
+    }
+    const btnCancelFullRestore = document.getElementById('btnCancelFullRestore');
+    if (btnCancelFullRestore) {
+      btnCancelFullRestore.addEventListener('click', () => {
+        document.getElementById('fullRestoreModal').style.display = 'none';
+      });
+    }
+    const btnConfirmFullRestore = document.getElementById('btnConfirmFullRestore');
+    if (btnConfirmFullRestore) {
+      btnConfirmFullRestore.addEventListener('click', () => this.performFullRestore());
+    }
 
     // 完整還原檔案輸入
-    document.getElementById('fullRestoreFileInput').addEventListener('change', (e) => {
-      this.handleFullRestoreFile(e);
-    });
-  }
-
-  /**
-   * 更新編輯器統計信息
-   */
-  updateEditorStats() {
-    const sqlEditor = document.getElementById('sqlEditor');
-    const lines = sqlEditor.value.split('\n');
-    const chars = sqlEditor.value.length;
-
-    document.getElementById('lineCount').textContent = lines.length;
-    document.getElementById('charCount').textContent = chars;
-  }
-
-  /**
-   * 格式化 SQL
-   */
-  formatSQL() {
-    const sqlEditor = document.getElementById('sqlEditor');
-    let sql = sqlEditor.value;
-
-    // 簡單的格式化：轉換為大寫 SQL 關鍵字
-    // 實際應用中可以集成專業的 SQL 格式化庫
-    sql = sql
-      .replace(/\bSELECT\b/gi, 'SELECT')
-      .replace(/\bFROM\b/gi, 'FROM')
-      .replace(/\bWHERE\b/gi, 'WHERE')
-      .replace(/\bAND\b/gi, 'AND')
-      .replace(/\bOR\b/gi, 'OR')
-      .replace(/\bJOIN\b/gi, 'JOIN')
-      .replace(/\bLEFT\b/gi, 'LEFT')
-      .replace(/\bRIGHT\b/gi, 'RIGHT')
-      .replace(/\bINNER\b/gi, 'INNER')
-      .replace(/\bOUTER\b/gi, 'OUTER')
-      .replace(/\bON\b/gi, 'ON')
-      .replace(/\bORDER\s+BY\b/gi, 'ORDER BY')
-      .replace(/\bGROUP\s+BY\b/gi, 'GROUP BY');
-
-    sqlEditor.value = sql;
-    this.updateEditorStats();
-  }
-
-  /**
-   * 清空 SQL
-   */
-  clearSQL() {
-    if (confirm('確定要清空編輯器內容嗎？')) {
-      document.getElementById('sqlEditor').value = '';
-      this.updateEditorStats();
+    const fullRestoreFileInput = document.getElementById('fullRestoreFileInput');
+    if (fullRestoreFileInput) {
+      fullRestoreFileInput.addEventListener('change', (e) => {
+        this.handleFullRestoreFile(e);
+      });
     }
   }
 
@@ -421,8 +567,34 @@ class SQLVersionApp {
 
     // 綁定點擊事件
     item.addEventListener('click', () => this.selectVersion(version.versionId));
+    
+    // 綁定右鍵選單事件
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.showContextMenu(e, version.versionId);
+    });
 
     return item;
+  }
+  
+  /**
+   * 顯示右鍵選單
+   */
+  showContextMenu(event, versionId) {
+    const contextMenu = document.getElementById('contextMenu');
+    contextMenu.dataset.versionId = versionId;
+    
+    // 定位選單
+    contextMenu.style.left = event.clientX + 'px';
+    contextMenu.style.top = event.clientY + 'px';
+    contextMenu.style.display = 'block';
+    
+    // 點擊其他地方關閉選單
+    setTimeout(() => {
+      document.addEventListener('click', () => {
+        contextMenu.style.display = 'none';
+      }, { once: true });
+    }, 0);
   }
 
   /**
@@ -457,30 +629,34 @@ class SQLVersionApp {
 
     // 加載版本內容到編輯器
     const content = await this.versionManager.getVersionContent(versionId);
-    document.getElementById('sqlEditor').value = content;
-    this.updateEditorStats();
+    if (this.monacoEditor) {
+      this.monacoEditor.setValue(content);
+      this.updateEditorStats();
+    }
 
     // 加載版本詳情面板
     const detailContent = document.getElementById('detailContent');
-    detailContent.innerHTML = `
-      <div style="font-size: 12px; color: #666;">
-        <p><strong>版本 ID：</strong> ${version.versionId}</p>
-        <p><strong>時間：</strong> ${new Date(version.timestamp).toLocaleString('zh-TW')}</p>
-        <p><strong>標籤：</strong> ${version.label}</p>
-        <p><strong>作者：</strong> ${version.author}</p>
-        <p><strong>描述：</strong> ${version.description || '(無)' }</p>
-        <p><strong>父版本：</strong> ${version.parentVersionId || '(根版本)'}</p>
-        <p><strong>存儲模式：</strong> ${version.isDeltaMode ? '差異' : '完整內容'}</p>
-        <p><strong>統計：</strong> +${version.stats.linesAdded} -${version.stats.linesRemoved}</p>
-      </div>
-    `;
+    if (detailContent) {
+      detailContent.innerHTML = `
+        <div style="font-size: 12px; color: #666;">
+          <p><strong>版本 ID：</strong> ${version.versionId}</p>
+          <p><strong>時間：</strong> ${new Date(version.timestamp).toLocaleString('zh-TW')}</p>
+          <p><strong>標籤：</strong> ${version.label}</p>
+          <p><strong>作者：</strong> ${version.author}</p>
+          <p><strong>描述：</strong> ${version.description || '(無)' }</p>
+          <p><strong>父版本：</strong> ${version.parentVersionId || '(根版本)'}</p>
+          <p><strong>存儲模式：</strong> ${version.isDeltaMode ? '差異' : '完整內容'}</p>
+          <p><strong>統計：</strong> +${version.stats.linesAdded} -${version.stats.linesRemoved}</p>
+        </div>
+      `;
+    }
   }
 
   /**
    * 顯示保存版本對話框
    */
   async showSaveVersionDialog() {
-    const sqlContent = document.getElementById('sqlEditor').value.trim();
+    const sqlContent = this.monacoEditor ? this.monacoEditor.getValue().trim() : '';
     
     // 檢查是否有內容
     if (!sqlContent) {
@@ -489,10 +665,15 @@ class SQLVersionApp {
     }
     
     // 清空表單
-    document.getElementById('newLabel').value = '';
-    document.getElementById('newDescription').value = '';
-    document.getElementById('newAuthor').value = localStorage.getItem('lastAuthor') || '';
-    document.getElementById('createSnapshot').checked = false;
+    const newLabel = document.getElementById('newLabel');
+    const newDescription = document.getElementById('newDescription');
+    const newAuthor = document.getElementById('newAuthor');
+    const createSnapshot = document.getElementById('createSnapshot');
+    
+    if (newLabel) newLabel.value = '';
+    if (newDescription) newDescription.value = '';
+    if (newAuthor) newAuthor.value = localStorage.getItem('lastAuthor') || '';
+    if (createSnapshot) createSnapshot.checked = false;
     
     // 判斷是否基於現有版本
     const isNewVersion = !this.selectedVersionId;
@@ -536,23 +717,33 @@ class SQLVersionApp {
     }
     
     // 顯示對話框
-    document.getElementById('newVersionModal').style.display = 'flex';
+    const newVersionModal = document.getElementById('newVersionModal');
+    if (newVersionModal) {
+      newVersionModal.style.display = 'flex';
+    }
     
     // 焦點放在標籤輸入框
-    setTimeout(() => {
-      document.getElementById('newLabel').focus();
-    }, 100);
+    if (newLabel) {
+      setTimeout(() => {
+        newLabel.focus();
+      }, 100);
+    }
   }
 
   /**
    * 確認保存版本
    */
   async confirmSaveVersion() {
-    const label = document.getElementById('newLabel').value.trim();
-    const description = document.getElementById('newDescription').value.trim();
-    const author = document.getElementById('newAuthor').value.trim();
-    const sqlRaw = document.getElementById('sqlEditor').value;
-    const createSnapshot = document.getElementById('createSnapshot').checked;
+    const newLabelEl = document.getElementById('newLabel');
+    const newDescriptionEl = document.getElementById('newDescription');
+    const newAuthorEl = document.getElementById('newAuthor');
+    const createSnapshotEl = document.getElementById('createSnapshot');
+    
+    const label = newLabelEl ? newLabelEl.value.trim() : '';
+    const description = newDescriptionEl ? newDescriptionEl.value.trim() : '';
+    const author = newAuthorEl ? newAuthorEl.value.trim() : '';
+    const sqlRaw = this.monacoEditor ? this.monacoEditor.getValue() : '';
+    const createSnapshot = createSnapshotEl ? createSnapshotEl.checked : false;
     const sql = sqlRaw.trim();
 
     if (!label) {
@@ -604,6 +795,11 @@ class SQLVersionApp {
   showCompareDialog() {
     const compareFrom = document.getElementById('compareFrom');
     const compareTo = document.getElementById('compareTo');
+    
+    if (!compareFrom || !compareTo) {
+      console.error('找不到比對對話框的元素');
+      return;
+    }
 
     // 填充版本選項
     versionManager.getAllVersions().then(versions => {
@@ -625,22 +821,30 @@ class SQLVersionApp {
       // 預設選擇
       if (this.selectedVersionId && versions.length > 0) {
         const selectedIndex = versions.findIndex(v => v.versionId === this.selectedVersionId);
-        if (selectedIndex > 0) {
+        if (selectedIndex > 0 && compareFrom) {
           compareFrom.value = versions[selectedIndex - 1].versionId;
         }
-        compareTo.value = this.selectedVersionId;
+        if (compareTo) {
+          compareTo.value = this.selectedVersionId;
+        }
       }
     });
 
-    document.getElementById('compareModal').style.display = 'flex';
+    const compareModal = document.getElementById('compareModal');
+    if (compareModal) {
+      compareModal.style.display = 'flex';
+    }
   }
 
   /**
    * 執行比對
    */
   async performComparison() {
-    const from = document.getElementById('compareFrom').value;
-    const to = document.getElementById('compareTo').value;
+    const compareFromEl = document.getElementById('compareFrom');
+    const compareToEl = document.getElementById('compareTo');
+    
+    const from = compareFromEl ? compareFromEl.value : '';
+    const to = compareToEl ? compareToEl.value : '';
 
     if (!from || !to) {
       alert('請選擇兩個版本進行比對');
@@ -746,7 +950,9 @@ class SQLVersionApp {
     if (confirm(`確定要回溯到版本 ${this.selectedVersionId} 嗎？`)) {
       try {
         const content = await this.versionManager.revertToVersion(this.selectedVersionId);
-        document.getElementById('sqlEditor').value = content;
+        if (this.monacoEditor) {
+          this.monacoEditor.setValue(content);
+        }
         this.updateEditorStats();
         alert('版本已回溯！');
       } catch (error) {
@@ -794,8 +1000,13 @@ class SQLVersionApp {
         await this.loadVersionTree();
 
         // 清空編輯器和詳情面板
-        document.getElementById('sqlEditor').value = '';
-        document.getElementById('detailContent').innerHTML = '<p class="placeholder-text">選擇一個版本查看詳情</p>';
+        if (this.monacoEditor) {
+          this.monacoEditor.setValue('');
+        }
+        const detailContent = document.getElementById('detailContent');
+        if (detailContent) {
+          detailContent.innerHTML = '<p class="placeholder-text">選擇一個版本查看詳情</p>';
+        }
         this.updateEditorStats();
       } catch (error) {
         alert('刪除失敗：' + error.message);
@@ -812,16 +1023,24 @@ class SQLVersionApp {
       await this.versionManager.deleteAllVersions();
       
       // 清空編輯器
-      document.getElementById('sqlEditor').value = '';
+      if (this.monacoEditor) {
+        this.monacoEditor.setValue('');
+      }
       
       // 重新整理版本樹
       await this.loadVersionTree();
       
       // 清空詳情面板
-      document.getElementById('detailContent').innerHTML = '<p class="placeholder-text">選擇一個版本查看詳情</p>';
+      const detailContent = document.getElementById('detailContent');
+      if (detailContent) {
+        detailContent.innerHTML = '<p class="placeholder-text">選擇一個版本查看詳情</p>';
+      }
       
       // 關閉對話框
-      document.getElementById('clearAllModal').style.display = 'none';
+      const clearAllModal = document.getElementById('clearAllModal');
+      if (clearAllModal) {
+        clearAllModal.style.display = 'none';
+      }
       
       // 更新統計信息
       this.updateEditorStats();
@@ -840,7 +1059,8 @@ class SQLVersionApp {
    * 搜尋版本
    */
   async searchVersions() {
-    const keyword = document.getElementById('searchVersions').value.trim();
+    const searchVersionsEl = document.getElementById('searchVersions');
+    const keyword = searchVersionsEl ? searchVersionsEl.value.trim() : '';
 
     if (!keyword) {
       await this.loadVersionTree();
@@ -850,6 +1070,8 @@ class SQLVersionApp {
     try {
       const results = await this.versionManager.searchVersions(keyword);
       const treeContainer = document.getElementById('versionTree');
+      if (!treeContainer) return;
+      
       treeContainer.innerHTML = '';
 
       if (results.length === 0) {
@@ -1213,8 +1435,10 @@ class SQLVersionApp {
       await this.loadVersionTree();
 
       // 清空編輯器
-      document.getElementById('sqlEditor').value = '';
-      this.updateEditorStats();
+      if (this.monacoEditor) {
+        this.monacoEditor.setValue('');
+        this.updateEditorStats();
+      }
 
       // 更新選擇器UI
       await this.updateProjectSelector();
@@ -1557,6 +1781,465 @@ class SQLVersionApp {
       console.error('完整還原失敗:', error);
       alert('完整還原失敗：' + error.message);
     }
+  }
+
+  /**
+   * 初始化 Monaco Editor
+   */
+  async initMonacoEditor() {
+    return new Promise((resolve, reject) => {
+      require(['vs/editor/editor.main'], () => {
+        try {
+          // 初始化主編輯器
+          this.monacoEditor = monaco.editor.create(document.getElementById('monacoEditor'), {
+            value: '',
+            language: 'sql',
+            theme: this.currentTheme === 'dark' ? 'vs-dark' : 'vs',
+            automaticLayout: true,
+            minimap: { enabled: true },
+            fontSize: 14,
+            lineNumbers: 'on',
+            roundedSelection: true,
+            scrollBeyondLastLine: false,
+            readOnly: false,
+            cursorStyle: 'line',
+            wordWrap: 'on',
+            tabSize: 2
+          });
+
+          // 監聽內容變化更新統計
+          this.monacoEditor.onDidChangeModelContent(() => {
+            this.updateEditorStats();
+            this.updateStatusBar();
+          });
+
+          // 監聽游標位置變化
+          this.monacoEditor.onDidChangeCursorPosition(() => {
+            this.updateStatusBar();
+          });
+
+          // 監聽選擇變化
+          this.monacoEditor.onDidChangeCursorSelection(() => {
+            this.updateStatusBar();
+          });
+
+          console.log('Monaco Editor 初始化成功');
+          resolve();
+        } catch (error) {
+          console.error('Monaco Editor 初始化失敗:', error);
+          reject(error);
+        }
+      });
+    });
+  }
+
+  /**
+   * 更新編輯器統計信息
+   */
+  updateEditorStats() {
+    if (this.monacoEditor) {
+      const model = this.monacoEditor.getModel();
+      if (model) {
+        const lineCount = model.getLineCount();
+        const charCount = model.getValue().length;
+        document.getElementById('lineCount').textContent = lineCount;
+        document.getElementById('charCount').textContent = charCount;
+      }
+    }
+  }
+
+  /**
+   * 更新狀態欄
+   */
+  updateStatusBar() {
+    if (this.monacoEditor) {
+      const position = this.monacoEditor.getPosition();
+      const selection = this.monacoEditor.getSelection();
+      
+      document.getElementById('statusPosition').textContent = `行 ${position.lineNumber}, 列 ${position.column}`;
+      
+      if (selection && !selection.isEmpty()) {
+        const model = this.monacoEditor.getModel();
+        const selectedText = model.getValueInRange(selection);
+        document.getElementById('statusSelection').textContent = `已選擇 ${selectedText.length}`;
+      } else {
+        document.getElementById('statusSelection').textContent = '已選擇 0';
+      }
+    }
+  }
+
+  /**
+   * 格式化 SQL（使用 sql-formatter）
+   */
+  formatSQL() {
+    if (!this.monacoEditor) return;
+    
+    try {
+      const sql = this.monacoEditor.getValue();
+      if (!sql.trim()) {
+        alert('編輯器內容為空');
+        return;
+      }
+
+      // 使用 sql-formatter 進行格式化
+      const formatted = sqlFormatter.format(sql, {
+        language: 'mysql',
+        indent: '  ',
+        uppercase: true,
+        linesBetweenQueries: 2
+      });
+
+      this.monacoEditor.setValue(formatted);
+      this.monacoEditor.getAction('editor.action.formatDocument').run();
+    } catch (error) {
+      console.error('格式化失敗:', error);
+      alert('SQL 格式化失敗：' + error.message);
+    }
+  }
+
+  /**
+   * 加載主題設定
+   */
+  async loadTheme() {
+    try {
+      const prefs = await this.db.getMetadata('userPreferences');
+      this.currentTheme = prefs?.value?.theme || 'light';
+      this.applyTheme(this.currentTheme);
+    } catch (error) {
+      console.warn('加載主題設定失敗:', error);
+      this.applyTheme('light');
+    }
+  }
+
+  /**
+   * 應用主題
+   */
+  applyTheme(theme) {
+    this.currentTheme = theme;
+    document.documentElement.setAttribute('data-theme', theme);
+    
+    // 更新 Monaco Editor 主題
+    if (this.monacoEditor) {
+      monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
+    }
+    if (this.leftMonacoEditor) {
+      monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
+    }
+    if (this.rightMonacoEditor) {
+      monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
+    }
+    
+    // 更新主題按鈕文字
+    const btn = document.getElementById('btnThemeToggle');
+    const icon = btn.querySelector('.icon');
+    const text = btn.querySelector('span:not(.icon)');
+    
+    if (theme === 'dark') {
+      icon.textContent = '☀️';
+      text.textContent = '淺色模式';
+    } else {
+      icon.textContent = '🌙';
+      text.textContent = '深色模式';
+    }
+  }
+
+  /**
+   * 切換主題
+   */
+  async toggleTheme() {
+    const newTheme = this.currentTheme === 'light' ? 'dark' : 'light';
+    this.applyTheme(newTheme);
+    
+    // 保存到 IndexedDB
+    try {
+      const prefs = await this.db.getMetadata('userPreferences') || { key: 'userPreferences', value: {} };
+      prefs.value.theme = newTheme;
+      await this.db.saveMetadata('userPreferences', prefs.value);
+    } catch (error) {
+      console.error('保存主題設定失敗:', error);
+    }
+  }
+
+  /**
+   * 切換比較模式
+   */
+  async toggleCompareMode() {
+    this.isSplitView = !this.isSplitView;
+    
+    const singleCard = document.getElementById('singleEditorCard');
+    const splitCard = document.getElementById('splitEditorCard');
+    
+    if (this.isSplitView) {
+      // 進入分割視圖
+      singleCard.style.display = 'none';
+      splitCard.style.display = 'block';
+      
+      // 初始化分割編輯器（如果尚未初始化）
+      if (!this.leftMonacoEditor || !this.rightMonacoEditor) {
+        await this.initSplitEditors();
+      }
+      
+      // 載入當前版本和前一版本
+      await this.loadDefaultComparison();
+    } else {
+      // 返回單一視圖
+      singleCard.style.display = 'block';
+      splitCard.style.display = 'none';
+    }
+  }
+
+  /**
+   * 初始化分割編輯器
+   */
+  async initSplitEditors() {
+    return new Promise((resolve) => {
+      require(['vs/editor/editor.main'], () => {
+        const editorOptions = {
+          language: 'sql',
+          theme: this.currentTheme === 'dark' ? 'vs-dark' : 'vs',
+          automaticLayout: true,
+          minimap: { enabled: false },
+          fontSize: 14,
+          lineNumbers: 'on',
+          readOnly: true,
+          scrollBeyondLastLine: false,
+          wordWrap: 'on',
+          tabSize: 2
+        };
+
+        this.leftMonacoEditor = monaco.editor.create(
+          document.getElementById('leftMonacoEditor'),
+          { ...editorOptions, value: '' }
+        );
+
+        this.rightMonacoEditor = monaco.editor.create(
+          document.getElementById('rightMonacoEditor'),
+          { ...editorOptions, value: '' }
+        );
+
+        // 綁定同步捲動
+        this.setupSyncScroll();
+
+        console.log('分割編輯器初始化成功');
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * 設置同步捲動
+   */
+  setupSyncScroll() {
+    this.leftMonacoEditor.onDidScrollChange(() => {
+      if (this.isSyncScroll && this.rightMonacoEditor) {
+        this.rightMonacoEditor.setScrollPosition({
+          scrollTop: this.leftMonacoEditor.getScrollTop()
+        });
+      }
+    });
+
+    this.rightMonacoEditor.onDidScrollChange(() => {
+      if (this.isSyncScroll && this.leftMonacoEditor) {
+        this.leftMonacoEditor.setScrollPosition({
+          scrollTop: this.rightMonacoEditor.getScrollTop()
+        });
+      }
+    });
+  }
+
+  /**
+   * 切換同步捲動
+   */
+  toggleSyncScroll() {
+    this.isSyncScroll = !this.isSyncScroll;
+    const btn = document.getElementById('btnSyncScroll');
+    btn.style.opacity = this.isSyncScroll ? '1' : '0.5';
+    btn.title = this.isSyncScroll ? '同步捲動（已啟用）' : '同步捲動（已停用）';
+  }
+
+  /**
+   * 載入預設比較（當前版本 vs 前一版本）
+   */
+  async loadDefaultComparison() {
+    const versions = await this.versionManager.getAllVersions();
+    if (versions.length < 2) {
+      alert('至少需要兩個版本才能進行比較');
+      return;
+    }
+
+    // 更新版本選擇下拉選單
+    await this.updateVersionSelects();
+
+    // 載入最新兩個版本
+    await this.loadVersionToSplit('left', versions[1].versionId);
+    await this.loadVersionToSplit('right', versions[0].versionId);
+  }
+
+  /**
+   * 更新版本選擇下拉選單
+   */
+  async updateVersionSelects() {
+    const versions = await this.versionManager.getAllVersions();
+    const leftSelect = document.getElementById('leftVersionSelect');
+    const rightSelect = document.getElementById('rightVersionSelect');
+
+    leftSelect.innerHTML = '<option value="">選擇版本...</option>';
+    rightSelect.innerHTML = '<option value="">選擇版本...</option>';
+
+    versions.forEach(v => {
+      const option = `<option value="${v.versionId}">${v.versionId.substring(0, 8)} - ${v.label}</option>`;
+      leftSelect.innerHTML += option;
+      rightSelect.innerHTML += option;
+    });
+  }
+
+  /**
+   * 載入版本到分割視圖
+   */
+  async loadVersionToSplit(side, versionId) {
+    if (!versionId) return;
+
+    try {
+      const content = await this.versionManager.getVersionContent(versionId);
+      const version = await this.versionManager.db.getVersion(versionId);
+
+      if (side === 'left') {
+        this.leftMonacoEditor.setValue(content);
+        document.getElementById('leftVersionLabel').textContent = version.label || '版本 A';
+        document.getElementById('leftLineCount').textContent = content.split('\n').length;
+        document.getElementById('leftVersionSelect').value = versionId;
+      } else {
+        this.rightMonacoEditor.setValue(content);
+        document.getElementById('rightVersionLabel').textContent = version.label || '版本 B';
+        document.getElementById('rightLineCount').textContent = content.split('\n').length;
+        document.getElementById('rightVersionSelect').value = versionId;
+      }
+
+      // 計算差異
+      await this.calculateSplitDiff();
+    } catch (error) {
+      console.error('載入版本失敗:', error);
+      alert('載入版本失敗：' + error.message);
+    }
+  }
+
+  /**
+   * 計算分割視圖的差異
+   */
+  async calculateSplitDiff() {
+    const leftId = document.getElementById('leftVersionSelect').value;
+    const rightId = document.getElementById('rightVersionSelect').value;
+
+    if (!leftId || !rightId) return;
+
+    try {
+      const comparison = await this.versionManager.compareVersions(leftId, rightId);
+      
+      document.getElementById('diffAdded').textContent = comparison.stats.linesAdded;
+      document.getElementById('diffRemoved').textContent = comparison.stats.linesRemoved;
+
+      // 使用 Monaco Editor 的 Decorations API 高亮差異
+      this.highlightDifferences(comparison.lineDiffs);
+    } catch (error) {
+      console.error('計算差異失敗:', error);
+    }
+  }
+
+  /**
+   * 高亮差異行
+   */
+  highlightDifferences(lineDiffs) {
+    if (!this.leftMonacoEditor || !this.rightMonacoEditor) return;
+
+    const leftDecorations = [];
+    const rightDecorations = [];
+
+    lineDiffs.forEach((diff, index) => {
+      const lineNumber = index + 1;
+
+      if (diff.type === 'removed') {
+        leftDecorations.push({
+          range: new monaco.Range(lineNumber, 1, lineNumber, 1),
+          options: {
+            isWholeLine: true,
+            className: 'diff-highlight-removed'
+          }
+        });
+      } else if (diff.type === 'added') {
+        rightDecorations.push({
+          range: new monaco.Range(lineNumber, 1, lineNumber, 1),
+          options: {
+            isWholeLine: true,
+            className: 'diff-highlight-added'
+          }
+        });
+      }
+    });
+
+    this.leftMonacoEditor.deltaDecorations([], leftDecorations);
+    this.rightMonacoEditor.deltaDecorations([], rightDecorations);
+  }
+
+  /**
+   * 關閉分割視圖
+   */
+  closeSplitView() {
+    this.isSplitView = false;
+    document.getElementById('singleEditorCard').style.display = 'block';
+    document.getElementById('splitEditorCard').style.display = 'none';
+  }
+
+  /**
+   * 與當前版本比較（右鍵選單觸發）
+   */
+  async compareWithCurrent(selectedVersionId) {
+    // 進入分割視圖
+    this.isSplitView = true;
+    document.getElementById('singleEditorCard').style.display = 'none';
+    document.getElementById('splitEditorCard').style.display = 'block';
+
+    // 初始化分割編輯器（如果尚未初始化）
+    if (!this.leftMonacoEditor || !this.rightMonacoEditor) {
+      await this.initSplitEditors();
+    }
+
+    await this.updateVersionSelects();
+
+    // 左側載入選中的版本，右側載入當前編輯器內容
+    await this.loadVersionToSplit('left', selectedVersionId);
+    
+    // 右側顯示當前編輯器內容
+    const currentContent = this.monacoEditor.getValue();
+    this.rightMonacoEditor.setValue(currentContent);
+    document.getElementById('rightVersionLabel').textContent = '當前編輯器';
+    document.getElementById('rightLineCount').textContent = currentContent.split('\n').length;
+    document.getElementById('rightVersionSelect').value = '';
+  }
+
+  /**
+   * 處理鍵盤快捷鍵
+   */
+  handleKeyboardShortcuts(e) {
+    // Ctrl+S - 保存版本
+    if (e.ctrlKey && e.key === 's') {
+      e.preventDefault();
+      this.showSaveVersionDialog();
+    }
+    
+    // Ctrl+Shift+F - 格式化
+    if (e.ctrlKey && e.shiftKey && e.key === 'F') {
+      e.preventDefault();
+      this.formatSQL();
+    }
+    
+    // Ctrl+D - 切換比較模式
+    if (e.ctrlKey && e.key === 'd') {
+      e.preventDefault();
+      this.toggleCompareMode();
+    }
+    
+    // Ctrl+F - 搜尋（使用 Monaco 內建）
+    // Monaco Editor 自動處理，不需要額外代碼
   }
 }
 
