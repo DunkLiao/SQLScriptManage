@@ -1,144 +1,156 @@
-## SQLScriptManage
+# SQLScriptManage
 
-一個純前端的 SQL 腳本版本管理工具，透過瀏覽器 IndexedDB 儲存與比對版本，支援專案化管理、差異檢視、匯入匯出與完整備份/還原。無需後端，直接以瀏覽器載入即可使用。
+SQLScriptManage 是一個純前端、瀏覽器本機執行的 SQL 腳本版本管理工具。它不需要後端服務，資料儲存在目前瀏覽器來源的 IndexedDB 中，適合用來管理 SQL 變更紀錄、比對版本、匯入匯出專案，以及做完整備份與還原。
 
-### 功能特色
+## 主要功能
 
-- 專案化管理：建立/切換/刪除專案，版本彼此隔離。
-- 版本控管：儲存完整版本內容，提供標籤、批註與哈希驗證。
-- 差異比對：在主頁並排比對，或開啟獨立差異頁 `diff.html?from=<v1>&to=<v2>` 檢視行級 diff。
-- 匯出/匯入：支援單專案匯出、選擇性匯出、多專案導入，檔案具備校驗碼；衝突可選跳過/覆蓋/合併。
-- 完整備份/還原：匯出整個資料庫（專案/版本/標籤/批註/元數據），可選清空後還原。
-- 編輯器工具：整合 Monaco Editor、SQL 格式化、主題切換、同步捲動與分割視圖。
+- 專案管理：建立、切換、刪除專案；不同專案的版本資料彼此隔離。
+- SQL 編輯：使用 Monaco Editor 編輯 SQL，支援行數/字元統計、游標位置、選取字數與主題切換。
+- 版本保存：每次保存會記錄標籤、描述、作者、時間、父版本、完整 SQL 內容、差異統計與 SHA-256 hash。
+- 差異比對：支援主頁並排比較與獨立差異頁 `diff.html?from=<versionId>&to=<versionId>`。
+- 匯入匯出：可匯出單一專案 JSON，匯入時支援衝突偵測、跳過、覆蓋與合併。
+- 完整備份/還原：可匯出所有專案、版本、標籤、批註與 metadata；還原時可選擇合併或清空後還原。
+- 本機容量顯示：狀態列會顯示目前 origin 的瀏覽器儲存使用量、總配額與百分比。
 
-### 系統概覽
+## 技術概覽
 
-- 架構：純前端（HTML/CSS/JS）+ IndexedDB 儲存，無需伺服器。
-- 主要流程：專案切換 → 編輯 SQL → 保存版本（快照/差異）→ 比對 → 匯出/備份 → 還原/導入。
-- 依賴：diff-match-patch、Monaco Editor、sql-formatter、原生 IndexedDB API。
+- 架構：原生 HTML、CSS、JavaScript，無框架、無打包流程。
+- 儲存：IndexedDB，資料庫名稱為 `SQLVersionControl`，目前 schema version 為 `4`。
+- 編輯器：Monaco Editor，從 CDN 載入。
+- 差異引擎：diff-match-patch，使用行級 diff。
+- SQL 格式化：sql-formatter，從 CDN 載入。
+- 檔案處理：使用瀏覽器 File、Blob、Object URL API 完成匯入與下載。
 
-### 技術棧
+## 專案結構
 
-- 前端：原生 HTML/CSS/JavaScript，無框架。
-- 編輯器：Monaco Editor（支援多分頁、同步捲動、分割視圖）。
-- Diff：diff-match-patch 行級差異與摘要。
-- SQL 工具：sql-formatter（格式化），自訂 normalize 邏輯減少虛假差異。
-- 儲存：IndexedDB（projects/versions/tags/comments/metadata ObjectStore）。
-- 其他：原生 File/Blob API 下載、IndexedDB 記錄當前專案與作者。
-
-### 核心流程圖（文字版）
-
-```
-啟動
-   └─ 載入 index.html → init SQLVersionApp
-          ├─ 初始化 DatabaseManager（IndexedDB v3）
-          ├─ 初始化 ProjectManager（載入/建立專案）
-          ├─ 初始化 VersionManager（快照/差異策略）
-          ├─ 初始化 ImportExportManager（匯出/導入/備份）
-          └─ 綁定 UI/Monaco/事件
-
-日常操作
-   ├─ 新建或切換專案
-   ├─ 在 Monaco 編輯 SQL
-   ├─ 保存版本
-   │    ├─ 規範化 SQL + 計算 diff/hash
-   │    └─ 寫入 versions（含 fullContent 與 hash/statistics）
-   ├─ 比對版本
-   │    ├─ 主頁並排比對；或
-   │    └─ 開啟 diff.html?from=...&to=...
-   ├─ 標籤/批註管理（tags/comments）
-   ├─ 匯出
-   │    ├─ 單專案 JSON（含校驗碼）
-   │    ├─ 選擇性匯出（多專案/時間區間/版本）
-   │    └─ 完整備份（含 metadata）
-   └─ 導入/還原
-          ├─ 校驗 checksum → 檢測衝突（跳過/覆蓋/合併）
-          └─ 可指定目標專案或清空後還原
+```text
+.
+├── index.html                 # 主應用入口
+├── diff.html                  # 獨立差異檢視頁
+├── css/
+│   ├── styles.css             # 主頁樣式
+│   └── diff.css               # diff 頁樣式
+├── js/
+│   ├── app.js                 # 應用初始化、UI 事件、Monaco 與流程協調
+│   ├── diffPage.js            # diff.html 行為
+│   └── modules/
+│       ├── database.js        # IndexedDB schema、CRUD、遷移
+│       ├── diffEngine.js      # SQL normalize、hash、line diff
+│       ├── importExport.js    # 匯出、匯入、完整備份/還原
+│       ├── projectManager.js  # 專案建立、切換、刪除
+│       └── versionManager.js  # 版本保存、讀取、比較、標籤與批註
+└── img/
+    └── logo.png
 ```
 
-### USLA（使用場景與服務層級假設）
+## 執行方式
 
-- 可用性：依賴瀏覽器資料儲存，不提供雲端同步；資料清除瀏覽器快取即會遺失，建議每日至少一次匯出。
-- 啟動時間：在主流桌面瀏覽器載入 index.html，首次初始化預期 < 2 秒（取決於瀏覽器與硬體）。
-- 編輯體驗：Monaco Editor 在 5–10k 行 SQL 內應維持流暢；更大檔案建議分段保存。
-- 儲存/比對：單次版本保存/比對預期 < 1 秒（常見 1–2k 行 SQL）。
-- 儲存上限：受限於 IndexedDB 配額（依瀏覽器/磁碟而異），建議定期完整備份並清理無用專案。
-- 相容性：已知支援 Chromium 系列（Chrome/Edge），Safari/Firefox 行為未全面驗證。
+這個專案沒有 `package.json` 或建置命令。建議用本機靜態伺服器開啟，避免 `file://` 對 IndexedDB、CDN 腳本或瀏覽器安全策略造成不一致行為。
 
-### 角色與操作流程（縮略）
+```bash
+python -m http.server 8000
+```
 
-1. 作者：撰寫 SQL → 保存版本（標籤/作者/描述）。
-2. 審閱者：選取兩版本 → 差異比對 → 透過標籤/批註記錄意見。
-3. 管理者：定期匯出單專案或完整備份；需要時執行還原或跨專案導入。
+或：
 
-### 版本與儲存策略補充
+```bash
+npx serve .
+```
 
-- 儲存格式：v4 起版本只保存 `fullContent` 作為正式內容來源，舊備份中的 `diffData` 會在導入或遷移時轉成完整內容。
-- 快照策略：保留差異統計用於摘要與比對，但不再以 delta 形式保存版本內容。
-- 校驗：保存及載入時使用 SHA-256；匯入時以 checksum 驗證檔案。
-- 壓縮維護：`compactLinearChain` 可將長鏈檢查點化，降低讀取成本。
+啟動後開啟：
 
-### 操作指南（更細步驟）
+```text
+http://127.0.0.1:8000/
+```
 
-1. 啟動：以本機靜態伺服器開啟專案根目錄後造訪 `index.html`。
-2. 專案：右上專案選擇器切換或「新增專案」建立；刪除需先換到其他專案。
-3. 編輯：在 Monaco 編輯區輸入 SQL，必要時點「格式化」整理排版。
-4. 保存：點「保存版本」，填標籤/作者/描述；系統自動決策快照/差異並驗證哈希。
-5. 比對：勾選兩版本 → 「差異比對」開新頁；或右鍵「與當前版本比較」並排檢視。
-6. 標籤/批註：於版本列表或差異頁新增，便於後續搜尋與審閱。
-7. 匯出：
-   - 「匯出」：單專案 JSON（可含標籤/批註）。
-   - 「更多 → 完整備份」：全專案/全版本/標籤/批註/metadata。
-   - 「選擇性匯出」：按專案/版本/時間區間篩選。
-8. 導入/還原：選檔後檢視衝突，選擇跳過/覆蓋/合併；完整還原可先清空現有資料。
+獨立差異頁需先在同一個瀏覽器來源下有版本資料，再透過主頁開啟，或手動造訪：
 
-### 風險與建議
+```text
+http://127.0.0.1:8000/diff.html?from=<versionId>&to=<versionId>
+```
 
-- 本地儲存風險：瀏覽器清除站點資料將失去所有內容，請建立備份習慣（至少每日）。
-- 瀏覽器配額：大型專案可能碰到 IndexedDB 配額限制，建議分專案管理並定期匯出。
-- 跨裝置：無內建同步，跨裝置需透過匯出/導入或完整備份檔案搬遷。
-- 相容性：若需 Safari/Firefox 支援，請先驗證 IndexedDB 實作行為。
+## 使用流程
 
-### 模組與檔案
+1. 開啟主頁後，系統會初始化 IndexedDB 並建立預設專案。
+2. 在「專案」下拉選單切換專案，或按「新建」建立新專案。
+3. 在 SQL 編輯器輸入內容，必要時按「格式化」整理 SQL。
+4. 按「保存版本」，填入版本標籤與作者；描述可選。
+5. 在右側版本列表選擇版本，可載入內容與查看版本詳情。
+6. 按「比較模式」可在主頁並排選擇兩個版本比較。
+7. 「更多 → 差異比對」可用對話框選擇版本並開啟獨立 diff 頁。
+8. 「導出」可匯出單一專案 JSON；「更多 → 完整備份」可匯出整個資料庫。
+9. 「導入」與「完整還原」可從 JSON 檔恢復資料，遇到衝突時依策略處理。
 
-- 主介面與事件協調： [js/app.js](js/app.js) — 初始化依賴、Monaco、UI 事件、版本樹、比對、備份還原、專案選擇器。
-- 版本管理： [js/modules/versionManager.js](js/modules/versionManager.js) — 儲存完整版本內容、搜尋、比對、版本鏈維護、標籤與批註。
-- 差異引擎： [js/modules/diffEngine.js](js/modules/diffEngine.js) — 基於 diff-match-patch 的行級 diff、哈希、摘要與快照決策。
-- 導入導出： [js/modules/importExport.js](js/modules/importExport.js) — 單專案匯出、完整匯出、選擇性匯出、多專案導入與衝突處理。
-- 專案管理： [js/modules/projectManager.js](js/modules/projectManager.js) — 專案建立/切換/刪除/改名，維護根版本。
-- 資料層（IndexedDB）： [js/modules/database.js](js/modules/database.js) — ObjectStore 建立、CRUD、遷移（v3 新增專案隔離與索引）。
-- 獨立差異頁： [js/diffPage.js](js/diffPage.js) — 依 `from`/`to` 參數載入版本、忽略空白/大小寫選項、表格化渲染與匯出。
+## 資料模型與儲存策略
 
-### 資料儲存與版本策略
+IndexedDB 主要 object stores：
 
-- 資料庫：IndexedDB，主要 ObjectStore 包含 `projects`、`versions`、`tags`、`comments`、`metadata`。
-- 版本記錄：保存完整內容 `fullContent`，附 SHA-256 `contentHash`。
-- v4 遷移：既有 `diffData` 會轉為 `fullContent` 後移除；新匯出不再包含 `diffData`。
-- 校驗：載入時會驗證內容哈希，異常將提示可能損壞。
+- `projects`：專案資料，包含 `projectId`、`projectName`、`rootVersionId`。
+- `versions`：版本資料，包含 `versionId`、`projectId`、`parentVersionId`、`fullContent`、`contentHash`、`stats`。
+- `tags`：版本標籤，使用 `versionId_tagName` 複合索引避免同版本重複標籤。
+- `comments`：版本批註，保留 `versionId`、狀態與行號等資訊。
+- `metadata`：目前專案、最後作者、最後版本與統計資訊等應用狀態。
 
-### 使用方式
+版本內容策略：
 
-1. 準備：使用支援 IndexedDB 的現代瀏覽器（Chrome/Edge）；建議以本機靜態伺服器開啟專案根目錄（避免 `file://` 限制）。
-2. 啟動：在瀏覽器開啟 `index.html` 即可使用主介面；需要行級差異時可從主介面開啟或直接造訪 `diff.html?from=<版本ID>&to=<版本ID>`。
-3. 快速流程：
-   - 建立專案 → 在編輯器輸入 SQL → 按「保存版本」填寫標籤/作者 → 版本出現在列表。
-   - 勾選兩版本後點「差異比對」可並排檢視；或在右鍵選單「與當前版本比較」。
-   - 透過「匯出」可輸出單專案 JSON；「更多」→「完整備份」匯出全部資料；「完整還原」可從備份重建。
+- v4 起以 `fullContent` 作為正式內容來源，不再以 delta 作為重建依據。
+- 保存前會正規化換行與行尾空白，避免無意義差異。
+- 每個版本保存 SHA-256 `contentHash`，讀取內容時會驗證完整性。
+- `stats` 保存新增、刪除、不變行數與 diff 大小，用於列表與比對摘要。
 
-### 匯出/還原重點
+## 匯出與還原
 
-- 單專案匯出：產生含校驗碼的 JSON，預設包含標籤與批註，可跨專案導入並指定目標專案。
-- 完整備份：包含全部專案/版本/標籤/批註/元數據；還原時可選擇清空現有資料或合併。
-- 選擇性匯出：可指定專案、版本或時間區間，並決定是否帶標籤/批註。
-- 衝突處理：導入時若版本 ID 已存在，可選擇跳過、覆蓋或合併，並提供校驗碼驗證。
+- 單專案匯出：產生 `formatVersion: "1.0"` 的 JSON，包含版本資料，可選標籤與批註。
+- 完整備份：產生 `formatVersion: "2.0"` 且 `exportType: "full"` 的 JSON，包含所有專案與 metadata。
+- 選擇性匯出：模組支援依專案、版本或時間範圍篩選；目前主要 UI 使用單專案匯出與完整備份。
+- 匯入衝突：版本 ID 已存在時，可跳過、覆蓋或合併為新版本。
+- 完整還原：可保留現有資料合併，也可勾選清空現有資料後還原；清空操作不可復原。
 
-### 注意事項
+## 狀態列與容量資訊
 
-- 所有資料儲存在瀏覽器 IndexedDB，清除站點資料會移除所有版本與專案。
-- 不同瀏覽器或不同來源 (origin) 的資料彼此隔離；更換瀏覽器視為新環境。
-- 建議定期匯出或完整備份以防瀏覽器資料被清除。
+主頁底部狀態列顯示：
 
-### 版權與授權
+- SQL 語言與 UTF-8 編碼。
+- 目前瀏覽器儲存使用量、總容量與百分比。
+- Monaco 編輯器游標位置。
+- 目前選取字元數。
 
-- 版權所有 © 2026 DunkLiao。
-- 授權條款：MIT License。
+容量資訊使用 `navigator.storage.estimate()`，回傳的是目前 origin 的瀏覽器儲存估算值，通常包含 IndexedDB，但不是單一 database 或單一 object store 的精確大小。
+
+## 開發與驗證
+
+目前沒有自動化測試框架。修改後建議用 Chrome 或 Edge 透過本機靜態伺服器手動驗證：
+
+- 首次開啟與重新初始化。
+- 建立、切換、刪除專案。
+- 保存版本、載入版本、刪除版本。
+- SQL 格式化與主題切換。
+- 主頁比較模式與 `diff.html` 獨立差異頁。
+- 單專案匯出、導入與衝突處理。
+- 完整備份、完整還原與清空後還原。
+- 狀態列容量顯示是否在資料變更後刷新。
+
+若只做 JavaScript 語法檢查，可執行：
+
+```bash
+node --check js/app.js
+node --check js/diffPage.js
+node --check js/modules/database.js
+node --check js/modules/diffEngine.js
+node --check js/modules/importExport.js
+node --check js/modules/projectManager.js
+node --check js/modules/versionManager.js
+```
+
+## 注意事項
+
+- 所有資料都存在瀏覽器本機 IndexedDB。清除站點資料、換瀏覽器、換 origin 都會看不到原資料。
+- 建議定期使用「完整備份」匯出 JSON，尤其是在清理瀏覽器資料或大量修改前。
+- CDN 依賴包含 Monaco Editor、diff-match-patch 與 sql-formatter；離線環境需先調整依賴載入方式。
+- IndexedDB 配額由瀏覽器與磁碟空間決定；大型 SQL 專案請定期清理與備份。
+
+## 授權
+
+Copyright (c) 2026 DunkLiao
+
+MIT License

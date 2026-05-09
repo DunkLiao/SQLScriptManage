@@ -100,6 +100,7 @@ class SQLVersionApp {
 
       console.log('✅ 應用初始化完成！');
       this.showInitializationStatus('success');
+      await this.updateStorageUsageStatus();
     } catch (error) {
       console.error('❌ 應用初始化失敗:', error);
       console.error('錯誤堆棧:', error.stack);
@@ -338,6 +339,7 @@ class SQLVersionApp {
         initStatus.classList.remove('status-pending', 'status-error');
         initStatus.classList.add('status-success');
       }
+      await this.updateStorageUsageStatus();
     } catch (error) {
       console.error('❌ 重新初始化失敗:', error);
       this.showInitializationStatus('error', error.message);
@@ -793,6 +795,8 @@ class SQLVersionApp {
 
       // 選擇新版本
       await this.selectVersion(version.versionId);
+
+      await this.updateStorageUsageStatus();
     } catch (error) {
       alert('保存版本失敗：' + error.message);
     }
@@ -1017,6 +1021,7 @@ class SQLVersionApp {
           detailContent.innerHTML = '<p class="placeholder-text">選擇一個版本查看詳情</p>';
         }
         this.updateEditorStats();
+        await this.updateStorageUsageStatus();
       } catch (error) {
         alert('刪除失敗：' + error.message);
       }
@@ -1056,6 +1061,7 @@ class SQLVersionApp {
       
       // 更新統計信息
       this.updateEditorStats();
+      await this.updateStorageUsageStatus();
       
       // 顯示成功訊息
       alert('✓ 所有本機資料已成功清空，已重建預設專案');
@@ -1385,6 +1391,7 @@ class SQLVersionApp {
 
       // 重新加載版本列表
       await this.loadVersionTree();
+      await this.updateStorageUsageStatus();
     } catch (error) {
       alert('導入失敗：' + error.message);
     }
@@ -1454,6 +1461,7 @@ class SQLVersionApp {
 
       // 更新選擇器UI
       await this.updateProjectSelector();
+      await this.updateStorageUsageStatus();
     } catch (error) {
       console.error('切換專案失敗:', error);
       alert('切換專案失敗：' + error.message);
@@ -1482,6 +1490,7 @@ class SQLVersionApp {
 
       // 自動切換到新專案
       await this.switchProject(project.projectId);
+      await this.updateStorageUsageStatus();
 
       alert(`已成功建立新專案「${projectName}」`);
     } catch (error) {
@@ -1560,9 +1569,10 @@ class SQLVersionApp {
       
       // 更新專案選擇器
       await this.updateProjectSelector();
-      
+
       // 重新加載版本列表
       await this.loadVersionTree();
+      await this.updateStorageUsageStatus();
       
       alert(`專案「${projectName}」已成功刪除`);
     } catch (error) {
@@ -1787,6 +1797,7 @@ class SQLVersionApp {
 
       // 重新加載版本列表
       await this.loadVersionTree();
+      await this.updateStorageUsageStatus();
 
       console.log('✓ 完整還原完成並已重新載入');
     } catch (error) {
@@ -1878,6 +1889,58 @@ class SQLVersionApp {
         document.getElementById('statusSelection').textContent = '已選擇 0';
       }
     }
+  }
+
+  /**
+   * 更新瀏覽器儲存空間用量。此數值為目前 origin 的估算用量，通常包含 IndexedDB。
+   */
+  async updateStorageUsageStatus() {
+    const storageElement = document.getElementById('statusStorage');
+    if (!storageElement) return;
+
+    if (!navigator.storage || typeof navigator.storage.estimate !== 'function') {
+      storageElement.textContent = '儲存 不支援容量查詢';
+      storageElement.title = '此瀏覽器不支援 Storage Estimate API';
+      return;
+    }
+
+    try {
+      const estimate = await navigator.storage.estimate();
+      const usage = estimate.usage || 0;
+      const quota = estimate.quota || 0;
+      const percent = quota > 0 ? `${((usage / quota) * 100).toFixed(2)}%` : '--%';
+      const usageText = this.formatBytes(usage);
+      const quotaText = quota > 0 ? this.formatBytes(quota) : '未知';
+      const text = `儲存 ${usageText} / ${quotaText} (${percent})`;
+
+      storageElement.textContent = text;
+      storageElement.title = '目前來源的瀏覽器儲存空間用量，通常包含 IndexedDB';
+    } catch (error) {
+      console.warn('儲存空間用量查詢失敗:', error);
+      storageElement.textContent = '儲存 無法取得';
+      storageElement.title = error.message || '儲存空間用量查詢失敗';
+    }
+  }
+
+  /**
+   * 將 byte 數轉為易讀格式。
+   */
+  formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return '0 B';
+    }
+
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = bytes;
+    let unitIndex = 0;
+
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex++;
+    }
+
+    const decimals = unitIndex === 0 ? 0 : 1;
+    return `${value.toFixed(decimals)} ${units[unitIndex]}`;
   }
 
   /**

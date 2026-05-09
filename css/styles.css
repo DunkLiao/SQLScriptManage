@@ -1134,6 +1134,22 @@ select {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+}
+
+.status-left {
+  flex: 1 1 auto;
+}
+
+.status-right {
+  flex: 0 0 auto;
+}
+
+#statusStorage {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .context-menu,
