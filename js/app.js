@@ -557,17 +557,17 @@ class SQLVersionApp {
     toggle.className = 'version-toggle';
     toggle.textContent = '▼';
 
+    const description = document.createElement('span');
+    description.className = 'version-description';
+    description.textContent = version.description || '(無描述)';
+
     const id = document.createElement('span');
     id.className = 'version-id';
     id.textContent = version.versionId;
 
-    const label = document.createElement('span');
-    label.className = 'version-label';
-    label.textContent = version.label || '(無標籤)';
-
     header.appendChild(toggle);
+    header.appendChild(description);
     header.appendChild(id);
-    header.appendChild(label);
 
     const detail = document.createElement('div');
     detail.className = 'version-item-detail';

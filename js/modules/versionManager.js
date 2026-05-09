@@ -334,16 +334,14 @@ class VersionManager {
   }
 
   /**
-   * 搜尋版本（按 label、description、author）
+   * 搜尋版本（按 SQL 描述）
    */
   async searchVersions(keyword) {
     const allVersions = await this.db.getAllVersions();
     const lowerKeyword = keyword.toLowerCase();
 
-    return allVersions.filter(v => 
-      v.label.toLowerCase().includes(lowerKeyword) ||
-      v.description.toLowerCase().includes(lowerKeyword) ||
-      v.author.toLowerCase().includes(lowerKeyword)
+    return allVersions.filter(v =>
+      (v.description || '').toLowerCase().includes(lowerKeyword)
     );
   }
 

@@ -583,13 +583,25 @@ select {
   color: var(--text-muted);
 }
 
-.version-id {
+.version-item-header .version-id {
   min-width: 0;
-  flex: 1;
+  flex: 0 1 42%;
   overflow: hidden;
   color: var(--text-muted);
   font-family: var(--mono-font);
   font-size: 11px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version-item-header .version-description {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 750;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
