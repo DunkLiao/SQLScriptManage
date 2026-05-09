@@ -114,12 +114,13 @@ class SQLVersionApp {
   showInitializationStatus(status, errorMessage = '') {
     const statusElement = document.getElementById('initStatus');
     if (statusElement) {
+      statusElement.classList.remove('status-pending', 'status-success', 'status-error');
       if (status === 'success') {
         statusElement.innerHTML = '✅ 應用已就緒';
-        statusElement.style.color = 'green';
+        statusElement.classList.add('status-success');
       } else {
         statusElement.innerHTML = '❌ 初始化失敗：' + errorMessage;
-        statusElement.style.color = 'red';
+        statusElement.classList.add('status-error');
       }
     }
   }
@@ -303,7 +304,8 @@ class SQLVersionApp {
     const initStatus = document.getElementById('initStatus');
     if (initStatus) {
       initStatus.innerHTML = '⏳ 正在重新初始化...';
-      initStatus.style.color = 'orange';
+      initStatus.classList.remove('status-success', 'status-error');
+      initStatus.classList.add('status-pending');
     }
     
     try {
@@ -311,20 +313,30 @@ class SQLVersionApp {
       console.log('重新初始化數據庫...');
       await db.initialize();
       this.db = db;
+
+      console.log('重新初始化專案管理器...');
+      await projectManager.init(db);
+      this.projectManager = projectManager;
       
       // 重新初始化版本管理器
       console.log('重新初始化版本管理器...');
-      await versionManager.init(db, diffEngine);
+      await versionManager.init(db, diffEngine, projectManager);
       this.versionManager = versionManager;
+
+      console.log('重新初始化導入導出管理器...');
+      await importExportManager.init(db, versionManager, diffEngine, projectManager);
+      this.importExportManager = importExportManager;
       
       // 重新加載版本列表
       console.log('重新加載版本列表...');
       await this.loadVersionTree();
+      await this.updateProjectSelector();
       
       console.log('✅ 重新初始化完成！');
       if (initStatus) {
         initStatus.innerHTML = '✅ 應用已就緒';
-        initStatus.style.color = 'green';
+        initStatus.classList.remove('status-pending', 'status-error');
+        initStatus.classList.add('status-success');
       }
     } catch (error) {
       console.error('❌ 重新初始化失敗:', error);
@@ -513,7 +525,7 @@ class SQLVersionApp {
     console.log('版本列表加載：', versions.map(v => v.versionId));
 
     if (versions.length === 0) {
-      treeContainer.innerHTML = '<p style="text-align:center; color:#999;">暫無版本</p>';
+      treeContainer.innerHTML = '<p class="empty-state">暫無版本</p>';
       return;
     }
 
@@ -638,15 +650,15 @@ class SQLVersionApp {
     const detailContent = document.getElementById('detailContent');
     if (detailContent) {
       detailContent.innerHTML = `
-        <div style="font-size: 12px; color: #666;">
-          <p><strong>版本 ID：</strong> ${version.versionId}</p>
-          <p><strong>時間：</strong> ${new Date(version.timestamp).toLocaleString('zh-TW')}</p>
-          <p><strong>標籤：</strong> ${version.label}</p>
-          <p><strong>作者：</strong> ${version.author}</p>
-          <p><strong>描述：</strong> ${version.description || '(無)' }</p>
-          <p><strong>父版本：</strong> ${version.parentVersionId || '(根版本)'}</p>
-          <p><strong>存儲模式：</strong> ${version.isDeltaMode ? '差異' : '完整內容'}</p>
-          <p><strong>統計：</strong> +${version.stats.linesAdded} -${version.stats.linesRemoved}</p>
+        <div class="detail-list">
+          <div class="detail-row"><span>版本 ID</span><strong>${version.versionId}</strong></div>
+          <div class="detail-row"><span>時間</span><strong>${new Date(version.timestamp).toLocaleString('zh-TW')}</strong></div>
+          <div class="detail-row"><span>標籤</span><strong>${version.label}</strong></div>
+          <div class="detail-row"><span>作者</span><strong>${version.author}</strong></div>
+          <div class="detail-row"><span>描述</span><strong>${version.description || '(無)'}</strong></div>
+          <div class="detail-row"><span>父版本</span><strong>${version.parentVersionId || '(根版本)'}</strong></div>
+          <div class="detail-row"><span>存儲模式</span><strong>${version.isDeltaMode ? '差異' : '完整內容'}</strong></div>
+          <div class="detail-row"><span>統計</span><strong class="detail-diff">+${version.stats.linesAdded} -${version.stats.linesRemoved}</strong></div>
         </div>
       `;
     }
@@ -696,15 +708,9 @@ class SQLVersionApp {
           if (parentVersion) {
             const parentLabel = parentVersion.label || parentVersion.versionId.substring(0, 8);
             parentInfoDiv.innerHTML = `
-              <div style="background: #f0f7ff; padding: 12px; border-radius: 6px; margin-bottom: 16px; border-left: 3px solid #0066cc;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                  <span style="font-size: 16px;">📌</span>
-                  <strong style="color: #0066cc;">基於版本：</strong>
-                  <span style="color: #333;">${parentLabel}</span>
-                </div>
-                <div style="font-size: 12px; color: #666; margin-left: 24px;">
-                  新版本將作為此版本的子版本儲存
-                </div>
+              <div class="parent-version-note">
+                <strong>基於版本：${parentLabel}</strong>
+                <span>新版本將作為此版本的子版本儲存</span>
               </div>
             `;
           } else {
@@ -1078,7 +1084,7 @@ class SQLVersionApp {
       treeContainer.innerHTML = '';
 
       if (results.length === 0) {
-        treeContainer.innerHTML = '<p style="text-align:center; color:#999;">未找到相符的版本</p>';
+        treeContainer.innerHTML = '<p class="empty-state">未找到相符的版本</p>';
         return;
       }
 
@@ -1656,7 +1662,7 @@ class SQLVersionApp {
       const restoreStats = document.getElementById('restoreStats');
       
       restoreStats.innerHTML = `
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <div class="stats-grid">
           <div><strong>匯出日期：</strong>${new Date(jsonData.exportDate).toLocaleString('zh-TW')}</div>
           <div><strong>格式版本：</strong>${jsonData.formatVersion}</div>
           <div><strong>專案數：</strong>${jsonData.totalProjects || 0}</div>

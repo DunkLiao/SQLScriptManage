@@ -9,26 +9,24 @@
   <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css">
 </head>
 <body>
-  <!-- ========== 導航欄 ========== -->
   <header class="navbar">
     <div class="navbar-left">
       <div class="logo-section">
         <img src="img/logo.png" alt="SQL 版本控管工具 Logo" class="logo-image">
         <h1 class="app-title">SQL 版本控管工具</h1>
       </div>
-      
-      <!-- v3 新增：專案選擇器 -->
-      <div class="project-selector" style="margin-left: 30px; display: flex; gap: 8px; align-items: center;">
-        <label for="projectSelector" style="font-size: 13px; font-weight: 500; color: #555;">📁 專案：</label>
-        <select id="projectSelector" class="btn" style="font-size: 13px; padding: 6px 10px; background: white; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">
+
+      <div class="project-selector">
+        <label for="projectSelector">專案</label>
+        <select id="projectSelector" class="project-select">
           <!-- 選項動態插入 -->
         </select>
-        <button class="btn btn-nav" id="btnNewProject" title="建立新專案" style="font-size: 12px; padding: 6px 10px;">
-          <span class="icon">➕</span>
+        <button class="btn btn-secondary btn-compact" id="btnNewProject" title="建立新專案">
+          <span class="icon">＋</span>
           <span>新建</span>
         </button>
-        <button class="btn btn-action" id="btnDeleteProject" title="刪除專案">
-          <span class="icon">🗑️</span>
+        <button class="btn btn-danger btn-compact" id="btnDeleteProject" title="刪除專案">
+          <span class="icon">×</span>
           <span>刪除</span>
         </button>
       </div>
@@ -56,7 +54,7 @@
     </div>
 
     <div class="navbar-right">
-      <div id="initStatus" style="padding: 8px 12px; border-radius: 4px; font-size: 12px; font-weight: bold;">
+      <div id="initStatus" class="init-status status-pending">
         ⏳ 正在初始化...
       </div>
       <button class="btn btn-nav" id="btnExport" title="導出版本歷史">
@@ -85,7 +83,6 @@
     </div>
   </header>
 
-  <!-- ========== 主容器 ========== -->
   <div class="container">
     <!-- 左側：編輯器面板 -->
     <div class="editor-panel">
@@ -96,7 +93,7 @@
         </div>
         <div class="card-body">
           <!-- Monaco Editor 容器 -->
-          <div id="monacoEditor" style="width: 100%; height: 500px;"></div>
+          <div id="monacoEditor" class="monaco-host"></div>
           <div class="editor-stats">
             <span>行數: <strong id="lineCount">0</strong></span>
             <span class="stat-divider">|</span>
@@ -123,7 +120,7 @@
                 <option value="">選擇版本...</option>
               </select>
             </div>
-            <div id="leftMonacoEditor" style="width: 100%; height: 500px;"></div>
+            <div id="leftMonacoEditor" class="monaco-host"></div>
             <div class="editor-stats">
               <span><strong id="leftLineCount">0</strong> 行</span>
             </div>
@@ -140,7 +137,7 @@
                 <option value="">選擇版本...</option>
               </select>
             </div>
-            <div id="rightMonacoEditor" style="width: 100%; height: 500px;"></div>
+            <div id="rightMonacoEditor" class="monaco-host"></div>
             <div class="editor-stats">
               <span><strong id="rightLineCount">0</strong> 行</span>
               <span class="stat-divider">|</span>
@@ -178,7 +175,7 @@
               placeholder="搜尋版本..."
               class="search-input"
             />
-            <button class="btn-search" id="btnSearch">🔍</button>
+            <button class="btn-search" id="btnSearch" title="搜尋">🔍</button>
           </div>
           <div class="version-tree" id="versionTree">
             <!-- 版本項動態插入 -->
@@ -374,7 +371,7 @@
               <input type="checkbox" id="exportComments" checked />
               <span>批註資訊</span>
             </label>
-            <p style="margin-top:8px; color:#666;">導出結果為單一 .json 檔案，包含版本、標籤與批註。</p>
+            <p class="form-help">導出結果為單一 .json 檔案，包含版本、標籤與批註。</p>
           </div>
         </div>
       </div>
@@ -396,24 +393,24 @@
         <button class="btn-close" id="btnCloseFullBackup">×</button>
       </div>
       <div class="modal-body">
-        <div class="backup-info" style="padding: 15px; background-color: #e7f3ff; border-left: 4px solid #2196F3; border-radius: 4px; margin-bottom: 15px;">
-          <p style="margin: 0 0 10px 0; font-weight: bold; color: #1976D2;">將匯出以下資料：</p>
-          <ul style="margin: 0; padding-left: 20px; color: #555;">
+        <div class="callout callout-info">
+          <p class="callout-title">將匯出以下資料：</p>
+          <ul>
             <li>所有專案及其設定</li>
             <li>所有版本及其完整內容</li>
             <li>所有標籤與批註</li>
             <li>應用程式元數據</li>
           </ul>
         </div>
-        <div id="backupStats" style="padding: 10px; background-color: #f5f5f5; border-radius: 4px; font-size: 13px;">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <div id="backupStats" class="stats-grid-wrap">
+          <div class="stats-grid">
             <div><strong>專案數：</strong><span id="statsProjects">計算中...</span></div>
             <div><strong>版本數：</strong><span id="statsVersions">計算中...</span></div>
             <div><strong>標籤數：</strong><span id="statsTags">計算中...</span></div>
             <div><strong>批註數：</strong><span id="statsComments">計算中...</span></div>
           </div>
         </div>
-        <div class="form-group" style="margin-top: 15px;">
+        <div class="form-group">
           <label>備份選項</label>
           <div>
             <label class="checkbox-label">
@@ -446,14 +443,14 @@
         <button class="btn-close" id="btnCloseFullRestore">×</button>
       </div>
       <div class="modal-body">
-        <div class="warning-content" style="padding: 20px; background-color: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px; margin-bottom: 15px;">
-          <p style="color: #856404; font-weight: bold; margin: 0 0 10px 0;">⚠️ 重要提醒</p>
-          <p style="color: #856404; margin: 0;">完整還原將影響所有現有資料。請仔細選擇還原策略。</p>
+        <div class="callout callout-warning">
+          <p class="callout-title">重要提醒</p>
+          <p>完整還原將影響所有現有資料。請仔細選擇還原策略。</p>
         </div>
         
-        <div id="restoreFileInfo" style="padding: 15px; background-color: #f5f5f5; border-radius: 4px; margin-bottom: 15px; display: none;">
-          <h4 style="margin-top: 0;">備份檔案資訊</h4>
-          <div id="restoreStats" style="font-size: 13px;">
+        <div id="restoreFileInfo" class="restore-file-info" style="display: none;">
+          <h4>備份檔案資訊</h4>
+          <div id="restoreStats">
             <!-- 動態插入檔案資訊 -->
           </div>
         </div>
@@ -477,11 +474,11 @@
         </div>
 
         <div class="form-group">
-          <label class="checkbox-label" style="color: #dc3545; font-weight: bold;">
+          <label class="checkbox-label danger-option">
             <input type="checkbox" id="restoreClearExisting" />
             <span>⚠️ 先清空所有現有資料再還原（危險操作！）</span>
           </label>
-          <p style="margin-top: 8px; color: #666; font-size: 12px;">
+          <p class="form-help">
             勾選此選項將完全刪除現有資料庫內容，然後匯入備份檔案。此操作無法復原！
           </p>
         </div>
@@ -509,7 +506,7 @@
           <select id="importTargetProject" class="form-input">
             <!-- 選項動態插入 -->
           </select>
-          <p style="margin-top: 8px; color: #666; font-size: 12px;">
+          <p class="form-help">
             選擇要導入版本的目標專案。版本將被添加到該專案的版本鏈中。
           </p>
         </div>
@@ -529,9 +526,9 @@
         <button class="btn-close" id="btnCloseClearAll">×</button>
       </div>
       <div class="modal-body">
-        <div class="warning-content" style="padding: 20px; background-color: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
-          <p style="color: #856404; font-weight: bold; margin: 0 0 10px 0;">此操作無法復原！</p>
-          <p style="color: #856404; margin: 0;">您確定要刪除所有版本資料嗎？此操作將永久移除所有已保存的版本、標籤和批註。</p>
+        <div class="callout callout-danger">
+          <p class="callout-title">此操作無法復原！</p>
+          <p>您確定要刪除所有版本資料嗎？此操作將永久移除所有已保存的版本、標籤和批註。</p>
         </div>
       </div>
       <div class="modal-footer">

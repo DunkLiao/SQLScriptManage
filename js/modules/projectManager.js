@@ -17,6 +17,10 @@ class ProjectManager {
     this.db = dbManager;
     await this.loadProjects();
 
+    if (this.projects.length === 0) {
+      await this.ensureDefaultProject();
+    }
+
     // 從 IndexedDB 恢復當前專案
     const savedPref = await this.db.getMetadata('currentProjectId');
     const saved = savedPref?.value;
@@ -28,7 +32,8 @@ class ProjectManager {
       await this.saveCurrentProjectId();
     }
 
-    console.log('✓ 專案管理器初始化完成');    console.log(`  - 當前專案: ${this.currentProjectId}`);
+    console.log('✓ 專案管理器初始化完成');
+    console.log(`  - 當前專案: ${this.currentProjectId}`);
   }
 
   /**
@@ -42,6 +47,26 @@ class ProjectManager {
       console.error('❌ 加載專案失敗:', error);
       this.projects = [];
     }
+  }
+
+  /**
+   * 確保至少有一個可用專案，避免空資料庫初始化後版本管理器沒有專案上下文。
+   */
+  async ensureDefaultProject() {
+    const now = Date.now();
+    const defaultProject = {
+      projectId: 'default',
+      projectName: '預設',
+      rootVersionId: null,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    await this.db.saveProject(defaultProject);
+    this.projects = [defaultProject];
+    this.currentProjectId = defaultProject.projectId;
+    await this.saveCurrentProjectId();
+    console.log('✓ 已建立預設專案');
   }
 
   /**
