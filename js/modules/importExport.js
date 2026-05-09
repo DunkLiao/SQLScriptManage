@@ -41,6 +41,7 @@ class ImportExportManager {
     const jsonMetadata = {
       formatVersion: '1.0',
       exportDate: new Date().toISOString(),
+      databaseVersion: this.db.version,
       totalVersions: sortedVersions.length,
       includeDelta: false,
       includeTags,
@@ -63,9 +64,7 @@ class ImportExportManager {
         isDeltaMode: version.isDeltaMode,
         stats: version.stats,
         depth: version.depth,
-        // 導出完整內容與差異資料，避免導入後無法顯示內容
         fullContent: version.fullContent || '',
-        diffData: version.diffData || null,
         createdAt: version.createdAt,
         updatedAt: version.updatedAt,
         projectId: version.projectId  // v3 新增：導出版本的專案 ID
@@ -147,7 +146,6 @@ class ImportExportManager {
         stats: version.stats,
         depth: version.depth,
         fullContent: version.fullContent || '',
-        diffData: version.diffData || null,
         createdAt: version.createdAt,
         updatedAt: version.updatedAt
       })),
@@ -240,6 +238,7 @@ class ImportExportManager {
       formatVersion: '2.0',
       exportType: 'selective',
       exportDate: new Date().toISOString(),
+      databaseVersion: this.db.version,
       totalProjects: projects.length,
       totalVersions: sortedVersions.length,
       includeTags,
@@ -263,7 +262,6 @@ class ImportExportManager {
         stats: version.stats,
         depth: version.depth,
         fullContent: version.fullContent || '',
-        diffData: version.diffData || null,
         createdAt: version.createdAt,
         updatedAt: version.updatedAt
       })),
@@ -365,7 +363,8 @@ class ImportExportManager {
 
     // 基本欄位提示（但不阻斷導入，以便舊匯出檔可被修復性導入）
     for (const version of jsonData.versions) {
-      if (!version.fullContent && !version.diffData) {
+      const hasFullContent = version.fullContent !== undefined && version.fullContent !== null;
+      if (!hasFullContent && !version.diffData) {
         console.warn(`版本 ${version.versionId || '(未知)'} 缺少內容，將嘗試以空內容導入`);
       }
     }
@@ -456,38 +455,10 @@ class ImportExportManager {
         const localExists = await this.db.getVersion(originalId);
 
         // 避免直接改動原始資料，複製一份可寫入的版本記錄
-        const versionRecord = { ...importVersion };
+        const versionRecord = await this._normalizeImportedVersionRecord(importVersion);
 
         // v3 新增：設定目標專案 ID
         versionRecord.projectId = targetProjectId;
-
-        // 解壓縮 diffData（若為字串）
-        if (versionRecord.diffData && typeof versionRecord.diffData === 'string') {
-          try {
-            versionRecord.diffData = this.diffEngine.decompressDiffData(versionRecord.diffData);
-          } catch (e) {
-            console.warn('diffData 解壓失敗，將按原樣使用:', e.message);
-          }
-        }
-
-        // 若缺少 fullContent，嘗試由 diffData 重建；再不行就置空避免阻塞導入
-        if (!versionRecord.fullContent) {
-          if (versionRecord.diffData) {
-            try {
-              versionRecord.fullContent = this.diffEngine.applyDiff('', versionRecord.diffData);
-            } catch (e) {
-              console.warn(`版本 ${originalId} 內容重建失敗，將以空內容導入`, e.message);
-              versionRecord.fullContent = '';
-            }
-          } else {
-            versionRecord.fullContent = '';
-          }
-        }
-
-        // 若缺少哈希，根據內容補計算
-        if (!versionRecord.contentHash && versionRecord.fullContent !== undefined) {
-          versionRecord.contentHash = await this.diffEngine.computeHash(versionRecord.fullContent);
-        }
 
         if (localExists && resolution !== 'skip') {
           if (resolution === 'overwrite') {
@@ -635,36 +606,8 @@ class ImportExportManager {
         
         for (const importVersion of jsonData.versions) {
           try {
-            const versionRecord = { ...importVersion };
+            const versionRecord = await this._normalizeImportedVersionRecord(importVersion);
             const existingVersion = await this.db.getVersion(versionRecord.versionId);
-
-            // 解壓縮 diffData（如果需要）
-            if (versionRecord.diffData && typeof versionRecord.diffData === 'string') {
-              try {
-                versionRecord.diffData = this.diffEngine.decompressDiffData(versionRecord.diffData);
-              } catch (e) {
-                console.warn('diffData 解壓失敗:', e.message);
-              }
-            }
-
-            // 確保有 fullContent
-            if (!versionRecord.fullContent) {
-              if (versionRecord.diffData) {
-                try {
-                  versionRecord.fullContent = this.diffEngine.applyDiff('', versionRecord.diffData);
-                } catch (e) {
-                  console.warn(`版本 ${versionRecord.versionId} 內容重建失敗`, e.message);
-                  versionRecord.fullContent = '';
-                }
-              } else {
-                versionRecord.fullContent = '';
-              }
-            }
-
-            // 確保有 contentHash
-            if (!versionRecord.contentHash && versionRecord.fullContent !== undefined) {
-              versionRecord.contentHash = await this.diffEngine.computeHash(versionRecord.fullContent);
-            }
 
             if (existingVersion) {
               if (conflictStrategy === 'overwrite') {
@@ -760,6 +703,45 @@ class ImportExportManager {
     }
 
     return results;
+  }
+
+  /**
+   * 將舊匯入格式轉為 v4 版本記錄：只寫入 fullContent，不保留 diffData。
+   */
+  async _normalizeImportedVersionRecord(importVersion) {
+    const versionRecord = { ...importVersion };
+    let diffData = versionRecord.diffData;
+
+    if (diffData && typeof diffData === 'string') {
+      try {
+        diffData = this.diffEngine.decompressDiffData(diffData);
+      } catch (e) {
+        console.warn('diffData 解壓失敗，將以空內容導入:', e.message);
+        diffData = null;
+      }
+    }
+
+    if (versionRecord.fullContent === undefined || versionRecord.fullContent === null) {
+      if (diffData) {
+        try {
+          versionRecord.fullContent = this.diffEngine.applyDiff('', diffData);
+        } catch (e) {
+          console.warn(`版本 ${versionRecord.versionId || '(未知)'} 內容重建失敗`, e.message);
+          versionRecord.fullContent = '';
+        }
+      } else {
+        versionRecord.fullContent = '';
+      }
+    }
+
+    if (!versionRecord.contentHash) {
+      versionRecord.contentHash = await this.diffEngine.computeHash(versionRecord.fullContent);
+    }
+
+    versionRecord.isDeltaMode = false;
+    delete versionRecord.diffData;
+
+    return versionRecord;
   }
 
   /**

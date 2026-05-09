@@ -3,7 +3,7 @@
  */
 
 class DatabaseManager {
-  constructor(dbName = 'SQLVersionControl', version = 3) {
+  constructor(dbName = 'SQLVersionControl', version = 4) {
     this.dbName = dbName;
     this.version = version;
     this.db = null;
@@ -43,6 +43,13 @@ class DatabaseManager {
             await this.migrateToV3().catch(err => {
               console.warn('數據遷移失敗:', err);
               // 不拋出錯誤，讓應用繼續初始化
+            });
+          }
+
+          // 執行數據遷移（v3 → v4）
+          if (dbVersion >= 4) {
+            await this.migrateToV4().catch(err => {
+              console.warn('v4 數據遷移失敗:', err);
             });
           }
           
@@ -105,9 +112,21 @@ class DatabaseManager {
               { keyPath: 'tagId' }
             );
             tagStore.createIndex('versionId', 'versionId');
-            tagStore.createIndex('tagName', 'tagName', { unique: true });
+            tagStore.createIndex('tagName', 'tagName', { unique: false });
+            tagStore.createIndex('versionId_tagName', ['versionId', 'tagName'], { unique: true });
             tagStore.createIndex('type', 'type');
             console.log('✓ 標籤 ObjectStore 創建成功');
+          } else if (oldVersion < 4) {
+            const tx = event.target.transaction;
+            const tagStore = tx.objectStore('tags');
+            if (tagStore.indexNames.contains('tagName')) {
+              tagStore.deleteIndex('tagName');
+            }
+            tagStore.createIndex('tagName', 'tagName', { unique: false });
+            if (!tagStore.indexNames.contains('versionId_tagName')) {
+              tagStore.createIndex('versionId_tagName', ['versionId', 'tagName'], { unique: true });
+            }
+            console.log('✓ 標籤索引已升級為版本範圍唯一');
           }
 
           // 3. 創建 comments ObjectStore
@@ -300,7 +319,15 @@ class DatabaseManager {
       const request = store.add(tagRecord);
 
       request.onsuccess = () => resolve(tagRecord);
-      request.onerror = () => reject(request.error);
+      request.onerror = () => {
+        if (request.error?.name === 'ConstraintError') {
+          const error = new Error('同一版本已存在此標籤');
+          error.name = 'ConstraintError';
+          reject(error);
+          return;
+        }
+        reject(request.error);
+      };
     });
   }
 
@@ -397,12 +424,13 @@ class DatabaseManager {
   async clearAllData() {
     if (!this.db) throw new Error('數據庫未初始化');
 
-    return new Promise((resolve, reject) => {
+    await new Promise((resolve, reject) => {
       const tx = this.db.transaction(
-        ['versions', 'tags', 'comments', 'metadata'],
+        ['projects', 'versions', 'tags', 'comments', 'metadata'],
         'readwrite'
       );
 
+      tx.objectStore('projects').clear();
       tx.objectStore('versions').clear();
       tx.objectStore('tags').clear();
       tx.objectStore('comments').clear();
@@ -411,6 +439,20 @@ class DatabaseManager {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+
+    const now = Date.now();
+    const defaultProject = {
+      projectId: 'default',
+      projectName: '預設',
+      rootVersionId: null,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    await this.saveProject(defaultProject);
+    await this.saveMetadata('currentProjectId', defaultProject.projectId);
+
+    return defaultProject;
   }
 
   /**
@@ -705,6 +747,101 @@ class DatabaseManager {
     await this.saveProject(defaultProject);
     console.log('✓ 預設專案建立成功');
     console.log('✅ 數據遷移完成');
+  }
+
+  /**
+   * 數據遷移：v3 → v4（版本內容改為只保存 fullContent）
+   */
+  async migrateToV4() {
+    const migrated = await this.getMetadata('migration_v4_fullContentOnly');
+    if (migrated?.value === true) {
+      console.log('✓ v4 數據遷移已完成，無需重複執行');
+      return;
+    }
+
+    console.log('開始執行 v3 → v4 數據遷移...');
+    const allVersions = await this.getAllVersions();
+    let updatedCount = 0;
+
+    for (const version of allVersions) {
+      let shouldUpdate = false;
+
+      if ((version.fullContent === undefined || version.fullContent === null) && version.diffData) {
+        try {
+          const diffData = typeof version.diffData === 'string'
+            ? JSON.parse(version.diffData)
+            : version.diffData;
+          version.fullContent = this._applyLineDiffs(diffData);
+          shouldUpdate = true;
+        } catch (error) {
+          console.warn(`版本 ${version.versionId} 的 diffData 轉換失敗，將以空內容遷移`, error);
+          version.fullContent = '';
+          shouldUpdate = true;
+        }
+      }
+
+      if (version.fullContent === undefined || version.fullContent === null) {
+        version.fullContent = '';
+        shouldUpdate = true;
+      }
+
+      if (!version.contentHash) {
+        version.contentHash = await this._computeHash(version.fullContent);
+        shouldUpdate = true;
+      }
+
+      if (version.diffData !== undefined) {
+        delete version.diffData;
+        shouldUpdate = true;
+      }
+
+      if (version.isDeltaMode !== false) {
+        version.isDeltaMode = false;
+        shouldUpdate = true;
+      }
+
+      if (shouldUpdate) {
+        version.updatedAt = Date.now();
+        await this._putVersion(version);
+        updatedCount++;
+      }
+    }
+
+    await this.saveMetadata('migration_v4_fullContentOnly', true);
+    console.log(`✓ v4 數據遷移完成，更新 ${updatedCount} 個版本`);
+  }
+
+  _applyLineDiffs(lineDiffs) {
+    if (!Array.isArray(lineDiffs)) return '';
+
+    const result = [];
+    for (const [op, content] of lineDiffs) {
+      if (op === 0 || op === 1) {
+        result.push(content);
+      }
+    }
+    return result.join('\n');
+  }
+
+  async _computeHash(content) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(content || '');
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+
+    return Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  async _putVersion(versionRecord) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('versions', 'readwrite');
+      const request = tx.objectStore('versions').put(versionRecord);
+
+      request.onsuccess = () => resolve(versionRecord);
+      request.onerror = () => reject(request.error);
+      tx.onerror = () => reject(tx.error);
+    });
   }
 }
 

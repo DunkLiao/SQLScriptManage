@@ -53,7 +53,7 @@ class VersionManager {
     const normalizedNewSQL = this.diffEngine.normalizeSql(sqlContent);
 
     // 3. 計算差異（用於顯示和統計）
-    const { lineDiffs, stats } = this.diffEngine.computeDiff(
+    const { stats } = this.diffEngine.computeDiff(
       latestContent,
       normalizedNewSQL  // 使用規範化後的內容計算差異
     );
@@ -64,14 +64,10 @@ class VersionManager {
     // 5. 生成版本 ID
     const versionId = this._generateVersionId();
 
-    // 6. 決策：是否使用差異模式
+    // 6. 計算版本深度
     const versionDepth = (latestVersion?.depth || 0) + 1;
-    const shouldSnapshot = createSnapshot || 
-                          this.diffEngine.shouldCreateSnapshot(stats, versionDepth);
 
     // 7. 構建版本記錄（添加 projectId）
-    // 關鍵改變：無論是否差異模式，都同時存儲內容和差異
-    // 這樣可以避免差異重建的問題
     const versionRecord = {
       versionId,
       projectId,  // v3 新增：專案隔離
@@ -81,9 +77,8 @@ class VersionManager {
       description: description || '',
       author,
       contentHash,
-      isDeltaMode: !shouldSnapshot,
-      diffData: lineDiffs,  // 總是存儲差異（用於顯示）
-      fullContent: normalizedNewSQL,  // 總是存儲完整內容（用於驗證）
+      isDeltaMode: false,
+      fullContent: normalizedNewSQL,
       stats,
       tags: [],
       depth: versionDepth,
@@ -111,37 +106,19 @@ class VersionManager {
 
   /**
    * 獲取版本完整內容
-   * 支持新格式（直接存儲的完整內容）和舊格式（需要重建的差異模式）
+   * v4 起以 fullContent 作為唯一正式內容來源。
    */
   async getVersionContent(versionId) {
     const version = await this.db.getVersion(versionId);
     if (!version) throw new Error(`版本 ${versionId} 不存在`);
 
-    // 新格式：直接存儲了完整內容
-    if (version.fullContent) {
+    if (version.fullContent !== undefined && version.fullContent !== null) {
       // 驗證哈希
       const hash = await this.diffEngine.computeHash(version.fullContent);
       if (hash !== version.contentHash) {
         throw new Error(`版本 ${versionId} 內容驗證失敗，數據可能已損壞`);
       }
       return version.fullContent;
-    }
-
-    // 舊格式：需要從差異重建（向後兼容）
-    if (version.isDeltaMode && version.diffData) {
-      const parentContent = version.parentVersionId
-        ? await this.getVersionContent(version.parentVersionId)
-        : '';
-
-      const rebuiltContent = this.diffEngine.applyDiff(parentContent, version.diffData);
-
-      // 驗證哈希
-      const hash = await this.diffEngine.computeHash(rebuiltContent);
-      if (hash !== version.contentHash) {
-        throw new Error(`版本 ${versionId} 內容驗證失敗，數據可能已損壞`);
-      }
-
-      return rebuiltContent;
     }
 
     throw new Error(`版本 ${versionId} 無有效內容`);
@@ -342,7 +319,6 @@ class VersionManager {
       // 更新版本記錄（轉換為完整內容模式）
       checkpointVersion.isDeltaMode = false;
       checkpointVersion.fullContent = fullContent;
-      checkpointVersion.diffData = null;
       checkpointVersion.updatedAt = Date.now();
 
       // 保存更新

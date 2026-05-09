@@ -5,7 +5,7 @@
 ### 功能特色
 
 - 專案化管理：建立/切換/刪除專案，版本彼此隔離。
-- 版本控管：儲存版本（快照或差異模式），提供標籤、批註與哈希驗證。
+- 版本控管：儲存完整版本內容，提供標籤、批註與哈希驗證。
 - 差異比對：在主頁並排比對，或開啟獨立差異頁 `diff.html?from=<v1>&to=<v2>` 檢視行級 diff。
 - 匯出/匯入：支援單專案匯出、選擇性匯出、多專案導入，檔案具備校驗碼；衝突可選跳過/覆蓋/合併。
 - 完整備份/還原：匯出整個資料庫（專案/版本/標籤/批註/元數據），可選清空後還原。
@@ -42,8 +42,7 @@
    ├─ 在 Monaco 編輯 SQL
    ├─ 保存版本
    │    ├─ 規範化 SQL + 計算 diff/hash
-   │    ├─ 判斷快照/差異儲存
-   │    └─ 寫入 versions（含 fullContent + diffData）
+   │    └─ 寫入 versions（含 fullContent 與 hash/statistics）
    ├─ 比對版本
    │    ├─ 主頁並排比對；或
    │    └─ 開啟 diff.html?from=...&to=...
@@ -74,8 +73,8 @@
 
 ### 版本與儲存策略補充
 
-- 儲存格式：版本同時保存 `fullContent` 與 `diffData`，避免重建鏈過深導致性能問題。
-- 快照策略：當 diff 大於 500KB、版本深度 > 10、或刪除占比 > 50% 時強制完整快照。
+- 儲存格式：v4 起版本只保存 `fullContent` 作為正式內容來源，舊備份中的 `diffData` 會在導入或遷移時轉成完整內容。
+- 快照策略：保留差異統計用於摘要與比對，但不再以 delta 形式保存版本內容。
 - 校驗：保存及載入時使用 SHA-256；匯入時以 checksum 驗證檔案。
 - 壓縮維護：`compactLinearChain` 可將長鏈檢查點化，降低讀取成本。
 
@@ -103,7 +102,7 @@
 ### 模組與檔案
 
 - 主介面與事件協調： [js/app.js](js/app.js) — 初始化依賴、Monaco、UI 事件、版本樹、比對、備份還原、專案選擇器。
-- 版本管理： [js/modules/versionManager.js](js/modules/versionManager.js) — 儲存版本（同時存完整內容與差異）、內容重建、搜尋、比對、版本鏈壓縮、標籤與批註。
+- 版本管理： [js/modules/versionManager.js](js/modules/versionManager.js) — 儲存完整版本內容、搜尋、比對、版本鏈維護、標籤與批註。
 - 差異引擎： [js/modules/diffEngine.js](js/modules/diffEngine.js) — 基於 diff-match-patch 的行級 diff、哈希、摘要與快照決策。
 - 導入導出： [js/modules/importExport.js](js/modules/importExport.js) — 單專案匯出、完整匯出、選擇性匯出、多專案導入與衝突處理。
 - 專案管理： [js/modules/projectManager.js](js/modules/projectManager.js) — 專案建立/切換/刪除/改名，維護根版本。
@@ -113,8 +112,8 @@
 ### 資料儲存與版本策略
 
 - 資料庫：IndexedDB，主要 ObjectStore 包含 `projects`、`versions`、`tags`、`comments`、`metadata`。
-- 版本記錄：同時保存完整內容 `fullContent` 及差異 `diffData`，附 SHA-256 `contentHash`。
-- 快照決策：依差異大小、版本深度、刪除比例決定是否改用完整快照（避免深鏈重建成本）。
+- 版本記錄：保存完整內容 `fullContent`，附 SHA-256 `contentHash`。
+- v4 遷移：既有 `diffData` 會轉為 `fullContent` 後移除；新匯出不再包含 `diffData`。
 - 校驗：載入時會驗證內容哈希，異常將提示可能損壞。
 
 ### 使用方式

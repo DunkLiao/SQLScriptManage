@@ -1028,8 +1028,11 @@ class SQLVersionApp {
    */
   async confirmClearAllData() {
     try {
-      // 清空資料庫中的所有版本
-      await this.versionManager.deleteAllVersions();
+      // 清空整個本機資料庫，並重建預設專案
+      await this.db.clearAllData();
+      await this.projectManager.loadProjects();
+      await this.projectManager.setCurrentProject('default');
+      await this.updateProjectSelector();
       
       // 清空編輯器
       if (this.monacoEditor) {
@@ -1055,9 +1058,9 @@ class SQLVersionApp {
       this.updateEditorStats();
       
       // 顯示成功訊息
-      alert('✓ 所有版本資料已成功刪除');
+      alert('✓ 所有本機資料已成功清空，已重建預設專案');
       
-      console.log('✓ 清空全部版本資料完成');
+      console.log('✓ 清空全部本機資料完成');
     } catch (error) {
       console.error('❌ 清空資料失敗:', error);
       alert('❌ 清空資料失敗，請重試');
