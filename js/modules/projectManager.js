@@ -16,19 +16,19 @@ class ProjectManager {
   async init(dbManager) {
     this.db = dbManager;
     await this.loadProjects();
-    
-    // 從 localStorage 恢復當前專案
-    const saved = localStorage.getItem('currentProjectId');
+
+    // 從 IndexedDB 恢復當前專案
+    const savedPref = await this.db.getMetadata('currentProjectId');
+    const saved = savedPref?.value;
     if (saved && this.projects.some(p => p.projectId === saved)) {
       this.currentProjectId = saved;
     } else if (this.projects.length > 0) {
       // 默認使用第一個專案
       this.currentProjectId = this.projects[0].projectId;
-      this.saveCurrentProjectId();
+      await this.saveCurrentProjectId();
     }
-    
-    console.log('✓ 專案管理器初始化完成');
-    console.log(`  - 當前專案: ${this.currentProjectId}`);
+
+    console.log('✓ 專案管理器初始化完成');    console.log(`  - 當前專案: ${this.currentProjectId}`);
   }
 
   /**
@@ -61,20 +61,20 @@ class ProjectManager {
   /**
    * 設定當前專案
    */
-  setCurrentProject(projectId) {
+  async setCurrentProject(projectId) {
     if (!this.projects.some(p => p.projectId === projectId)) {
       throw new Error(`專案 ${projectId} 不存在`);
     }
     this.currentProjectId = projectId;
-    this.saveCurrentProjectId();
+    await this.saveCurrentProjectId();
     console.log(`✓ 已切換到專案: ${projectId}`);
   }
 
   /**
-   * 保存當前專案 ID 到 localStorage
+   * 保存當前專案 ID 到 IndexedDB
    */
-  saveCurrentProjectId() {
-    localStorage.setItem('currentProjectId', this.currentProjectId);
+  async saveCurrentProjectId() {
+    await this.db.saveMetadata('currentProjectId', this.currentProjectId);
   }
 
   /**

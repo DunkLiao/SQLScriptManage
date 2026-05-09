@@ -672,7 +672,10 @@ class SQLVersionApp {
     
     if (newLabel) newLabel.value = '';
     if (newDescription) newDescription.value = '';
-    if (newAuthor) newAuthor.value = localStorage.getItem('lastAuthor') || '';
+    if (newAuthor) {
+      const lastAuthorPref = await this.db.getMetadata('lastAuthor');
+      newAuthor.value = lastAuthorPref?.value || '';
+    }
     if (createSnapshot) createSnapshot.checked = true;
     
     // 判斷是否基於現有版本
@@ -762,8 +765,8 @@ class SQLVersionApp {
     }
 
     try {
-      // 保存作者到本地存儲
-      localStorage.setItem('lastAuthor', author);
+      // 保存作者到 IndexedDB
+      await this.db.saveMetadata('lastAuthor', author);
 
       // 保存版本
       const version = await this.versionManager.saveVersion(
@@ -1428,7 +1431,7 @@ class SQLVersionApp {
    */
   async switchProject(projectId) {
     try {
-      this.projectManager.setCurrentProject(projectId);
+      await this.projectManager.setCurrentProject(projectId);
       console.log('✓ 已切換到專案:', projectId);
 
       // 更新版本樹
@@ -1766,7 +1769,7 @@ class SQLVersionApp {
       if (projects.length > 0) {
         const currentId = this.projectManager.getCurrentProjectId();
         if (!projects.some(p => p.projectId === currentId)) {
-          this.projectManager.setCurrentProject(projects[0].projectId);
+          await this.projectManager.setCurrentProject(projects[0].projectId);
         }
       }
 

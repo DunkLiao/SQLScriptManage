@@ -24,7 +24,7 @@
 - Diff：diff-match-patch 行級差異與摘要。
 - SQL 工具：sql-formatter（格式化），自訂 normalize 邏輯減少虛假差異。
 - 儲存：IndexedDB（projects/versions/tags/comments/metadata ObjectStore）。
-- 其他：原生 File/Blob API 下載、localStorage 記錄當前專案。
+- 其他：原生 File/Blob API 下載、IndexedDB 記錄當前專案與作者。
 
 ### 核心流程圖（文字版）
 
