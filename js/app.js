@@ -156,6 +156,10 @@ class SQLVersionApp {
     if (btnDeleteVersion) {
       btnDeleteVersion.addEventListener('click', () => this.deleteVersion());
     }
+    const btnDownloadSQL = document.getElementById('btnDownloadSQL');
+    if (btnDownloadSQL) {
+      btnDownloadSQL.addEventListener('click', () => this.downloadCurrentSQL());
+    }
 
     const btnHelp = document.getElementById('btnHelp');
     if (btnHelp) {
@@ -2150,6 +2154,31 @@ class SQLVersionApp {
 
     const decimals = unitIndex === 0 ? 0 : 1;
     return `${value.toFixed(decimals)} ${units[unitIndex]}`;
+  }
+
+  /**
+   * 下載目前編輯器中的 SQL 內容。
+   */
+  downloadCurrentSQL() {
+    if (!this.monacoEditor) return;
+
+    const sql = this.monacoEditor.getValue();
+    if (!sql.trim()) {
+      alert('編輯器內容為空');
+      return;
+    }
+
+    const currentScript = this.scriptManager?.getCurrentScript();
+    const rawName = currentScript?.scriptName || 'sql_script';
+    const safeBaseName = rawName
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, ' ')
+      .trim() || 'sql_script';
+    const filename = safeBaseName.toLowerCase().endsWith('.sql')
+      ? safeBaseName
+      : `${safeBaseName}.sql`;
+
+    this.importExportManager.downloadFile(sql, filename, 'text/sql;charset=utf-8');
   }
 
   /**
