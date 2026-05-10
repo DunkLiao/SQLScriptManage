@@ -156,6 +156,16 @@ class SQLVersionApp {
     if (btnDeleteVersion) {
       btnDeleteVersion.addEventListener('click', () => this.deleteVersion());
     }
+
+    const btnHelp = document.getElementById('btnHelp');
+    if (btnHelp) {
+      btnHelp.addEventListener('click', () => {
+        const helpModal = document.getElementById('helpModal');
+        if (helpModal) {
+          helpModal.style.display = 'flex';
+        }
+      });
+    }
     
     // 主題切換
     const btnThemeToggle = document.getElementById('btnThemeToggle');
@@ -379,6 +389,20 @@ class SQLVersionApp {
    * 綁定模態對話框事件
    */
   bindDialogEvents() {
+    // 使用說明對話框
+    const btnCloseHelp = document.getElementById('btnCloseHelp');
+    if (btnCloseHelp) {
+      btnCloseHelp.addEventListener('click', () => {
+        document.getElementById('helpModal').style.display = 'none';
+      });
+    }
+    const btnCancelHelp = document.getElementById('btnCancelHelp');
+    if (btnCancelHelp) {
+      btnCancelHelp.addEventListener('click', () => {
+        document.getElementById('helpModal').style.display = 'none';
+      });
+    }
+
     // 新增版本對話框
     const btnCloseModal = document.getElementById('btnCloseModal');
     if (btnCloseModal) {

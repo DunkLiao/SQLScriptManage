@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQL 版本控管工具｜使用說明</title>
+  <link rel="stylesheet" href="css/help.css">
+</head>
+<body>
+  <header class="help-header">
+    <div class="help-header-inner">
+      <div class="brand">
+        <img src="img/logo.png" alt="SQL 版本控管工具 Logo">
+        <div>
+          <h1>SQL 版本控管工具 使用說明 📝</h1>
+          <p>用瀏覽器管理 SQL 腳本、保存版本、比較差異與備份資料。</p>
+        </div>
+      </div>
+      <a class="back-link" href="index.html">回到系統</a>
+    </div>
+  </header>
+
+  <main class="help-main">
+    <section class="quick-start">
+      <h2>🚀 快速開始</h2>
+      <ol>
+        <li>選擇或建立一個「專案」。</li>
+        <li>選擇或建立一支「SQL」腳本。</li>
+        <li>在 SQL 編輯器輸入內容。</li>
+        <li>點選「保存版本」，填寫版本標籤與作者。</li>
+        <li>之後可從版本列表查看、載入或比較版本。</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>🏠 畫面區域</h2>
+      <div class="feature-grid">
+        <article>
+          <h3>📁 專案</h3>
+          <p>用來區分不同系統、客戶、資料庫或工作主題。不同專案的 SQL 與版本會分開管理。</p>
+        </article>
+        <article>
+          <h3>📄 SQL 腳本</h3>
+          <p>每個專案底下可以放多支 SQL，例如建表語法、查詢語法或資料修正腳本。</p>
+        </article>
+        <article>
+          <h3>✍️ SQL 編輯器</h3>
+          <p>主要輸入區。你可以直接貼上或撰寫 SQL，也可以用「格式化」整理排版。</p>
+        </article>
+        <article>
+          <h3>🕘 版本列表</h3>
+          <p>保存過的版本會出現在這裡。點選版本後，可查看內容與版本資訊。</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>💾 保存版本</h2>
+      <p>當 SQL 修改到一個段落時，請點選「保存版本」。建議填寫清楚的版本標籤，例如「新增索引」、「修正 JOIN 條件」或「上線前版本」。</p>
+      <div class="tip">💡 描述欄位可以記錄修改原因，之後查找版本會更容易。</div>
+    </section>
+
+    <section>
+      <h2>🔍 比較版本</h2>
+      <p>點選「比較模式」後，選擇左右兩個版本，就能看到 SQL 差異。</p>
+      <ul>
+        <li>🟢 綠色通常代表新增內容。</li>
+        <li>🔴 紅色通常代表刪除內容。</li>
+        <li>⚪ 沒有標示的內容通常代表未變更。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>📤 導出與 📥 導入</h2>
+      <p>「導出」可以把單一專案的版本歷史下載成 JSON 檔案。「導入」可以把之前導出的 JSON 匯回系統。</p>
+      <p>如果導入時遇到版本衝突，可以選擇跳過、覆蓋，或合併為新版本。不確定時，建議選擇「合併為新版本」。</p>
+    </section>
+
+    <section>
+      <h2>💾 完整備份與 ♻️ 完整還原</h2>
+      <p>「完整備份」會保存所有專案、SQL 腳本與版本。建議在清理瀏覽器資料、換電腦或大量修改前先備份。</p>
+      <p>「完整還原」可以匯入完整備份檔。若勾選清空現有資料，系統會先刪除目前所有資料再還原，請謹慎使用。</p>
+      <div class="warning">⚠️ 重要資料請定期完整備份。清除瀏覽器網站資料後，系統內的版本可能會消失。</div>
+    </section>
+
+    <section>
+      <h2>🧹 刪除資料</h2>
+      <p>系統可以刪除 SQL 腳本、版本、專案或全部資料。刪除後通常無法直接復原，操作前請先確認是否已備份。</p>
+    </section>
+
+    <section>
+      <h2>❓ 常見問題</h2>
+      <details>
+        <summary>資料會上傳到伺服器嗎？</summary>
+        <p>不會。資料主要保存在目前瀏覽器本機。</p>
+      </details>
+      <details>
+        <summary>換瀏覽器後看不到資料怎麼辦？</summary>
+        <p>不同瀏覽器的本機資料不會自動共用。請先在原瀏覽器做完整備份，再到新瀏覽器完整還原。</p>
+      </details>
+      <details>
+        <summary>比較頁打不開怎麼辦？</summary>
+        <p>請先確認已保存至少兩個版本，並使用本機伺服器開啟系統，不要直接用 file:// 開啟。</p>
+      </details>
+    </section>
+  </main>
+</body>
+</html>

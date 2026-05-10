@@ -11,9 +11,15 @@
 <body>
   <header class="navbar">
     <div class="navbar-left">
-      <div class="logo-section">
-        <img src="img/logo.png" alt="SQL 版本控管工具 Logo" class="logo-image">
-        <h1 class="app-title">SQL 版本控管工具</h1>
+      <div class="brand-panel">
+        <div class="logo-section">
+          <img src="img/logo.png" alt="SQL 版本控管工具 Logo" class="logo-image">
+          <h1 class="app-title">SQL 版本控管工具</h1>
+        </div>
+        <button class="btn btn-help" id="btnHelp" title="開啟使用說明">
+          <span class="icon">❓</span>
+          <span>使用說明</span>
+        </button>
       </div>
 
       <div class="scope-selectors">
@@ -237,6 +243,56 @@
   </div>
 
   <!-- ========== 模態對話框 ========== -->
+
+  <!-- 使用說明對話框 -->
+  <div id="helpModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-large">
+      <div class="modal-header">
+        <h2>❓ 使用說明</h2>
+        <button class="btn-close" id="btnCloseHelp">×</button>
+      </div>
+      <div class="modal-body help-modal-body">
+        <div class="callout callout-info">
+          <p class="callout-title">快速開始</p>
+          <ol>
+            <li>選擇或建立一個「專案」。</li>
+            <li>選擇或建立一支「SQL」腳本。</li>
+            <li>在 SQL 編輯器輸入內容。</li>
+            <li>點選「保存版本」，填寫版本標籤與作者。</li>
+            <li>之後可從版本列表查看、載入或比較版本。</li>
+          </ol>
+        </div>
+
+        <div class="help-topic-grid">
+          <section class="help-topic">
+            <h3>💾 保存版本</h3>
+            <p>SQL 修改到一個段落後，點選「保存版本」。版本標籤建議寫清楚，例如「新增索引」或「上線前版本」。</p>
+          </section>
+          <section class="help-topic">
+            <h3>🔍 比較版本</h3>
+            <p>點選「比較模式」，在左右兩側各選一個版本，就能查看新增、刪除與未變更內容。</p>
+          </section>
+          <section class="help-topic">
+            <h3>📤 導出與導入</h3>
+            <p>「導出」可下載單一專案版本歷史；「導入」可把 JSON 檔案匯回系統。遇到衝突時，不確定可選「合併為新版本」。</p>
+          </section>
+          <section class="help-topic">
+            <h3>💾 完整備份</h3>
+            <p>完整備份會保存所有專案、SQL 腳本與版本。清理瀏覽器資料、換電腦或大量修改前，建議先備份。</p>
+          </section>
+        </div>
+
+        <div class="callout callout-warning">
+          <p class="callout-title">重要提醒</p>
+          <p>資料主要保存在目前瀏覽器本機。清除網站資料、換瀏覽器或換電腦時，原本資料不會自動出現，請使用完整備份與完整還原搬移資料。</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelHelp">關閉</button>
+        <a class="btn btn-primary" href="help.html">開啟完整說明</a>
+      </div>
+    </div>
+  </div>
 
   <!-- 新增版本對話框 -->
   <div id="newVersionModal" class="modal-overlay" style="display:none;">
