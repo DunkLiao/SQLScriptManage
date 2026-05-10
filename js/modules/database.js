@@ -451,6 +451,71 @@ class DatabaseManager {
     });
   }
 
+  async getDataCounts() {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    const [projects, scripts, versions, tags, comments] = await Promise.all([
+      this.getAllProjects(),
+      this.getAllScripts(),
+      this.getAllVersions(),
+      this._getAllFromStore('tags'),
+      this._getAllFromStore('comments')
+    ]);
+
+    return {
+      projects: projects.length,
+      scripts: scripts.length,
+      versions: versions.length,
+      tags: tags.length,
+      comments: comments.length
+    };
+  }
+
+  async getProjectImpactStats(projectId) {
+    const scripts = await this.getScriptsByProject(projectId);
+    const versions = await this.getVersionsByProject(projectId);
+    return await this._buildImpactStats(versions, { scripts: scripts.length });
+  }
+
+  async getScriptImpactStats(scriptId) {
+    const versions = await this.getVersionsByScript(scriptId);
+    return await this._buildImpactStats(versions, { scripts: 1 });
+  }
+
+  async getVersionImpactStats(versionId) {
+    const version = await this.getVersion(versionId);
+    if (!version) throw new Error('版本不存在');
+    return await this._buildImpactStats([version], { scripts: 0 });
+  }
+
+  async _buildImpactStats(versions, extra = {}) {
+    const versionIds = new Set(versions.map(version => version.versionId));
+    const [tags, comments] = await Promise.all([
+      this._getAllFromStore('tags'),
+      this._getAllFromStore('comments')
+    ]);
+
+    return {
+      scripts: extra.scripts || 0,
+      versions: versions.length,
+      tags: tags.filter(tag => versionIds.has(tag.versionId)).length,
+      comments: comments.filter(comment => versionIds.has(comment.versionId)).length
+    };
+  }
+
+  async _getAllFromStore(storeName) {
+    if (!this.db) throw new Error('數據庫未初始化');
+    if (!this.db.objectStoreNames.contains(storeName)) return [];
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(storeName, 'readonly');
+      const request = tx.objectStore(storeName).getAll();
+
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
   /**
    * 清空所有數據
    */

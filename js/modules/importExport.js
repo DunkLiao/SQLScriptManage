@@ -352,44 +352,203 @@ class ImportExportManager {
     console.log('檔案下載完成:', filename);
   }
 
+  parseJSONContent(jsonContent) {
+    try {
+      return typeof jsonContent === 'string' ? JSON.parse(jsonContent) : jsonContent;
+    } catch (error) {
+      throw new Error('無效的 JSON 格式');
+    }
+  }
+
+  async validateImportData(jsonData, options = {}) {
+    const { requireFull = false } = options;
+    const data = this.parseJSONContent(jsonData);
+
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('JSON 檔案內容必須是物件');
+    }
+
+    if (requireFull) {
+      if (!['2.0', '3.0'].includes(data.formatVersion) || data.exportType !== 'full') {
+        throw new Error('不是有效的完整備份檔案（需要 formatVersion 2.0/3.0 且 exportType 為 full）');
+      }
+      this._assertArrayField(data, 'projects');
+    }
+
+    this._assertArrayField(data, 'versions');
+    if (data.scripts !== undefined) this._assertArrayField(data, 'scripts');
+    if (data.tags !== undefined) this._assertArrayField(data, 'tags');
+    if (data.comments !== undefined) this._assertArrayField(data, 'comments');
+    if (data.metadata !== undefined) this._assertArrayField(data, 'metadata');
+
+    await this._verifyChecksum(data);
+    await this._verifyVersionRecords(data, { strict: requireFull && data.formatVersion === '3.0' });
+
+    return {
+      isValid: true,
+      data,
+      counts: {
+        projects: data.projects?.length || 0,
+        scripts: data.scripts?.length || 0,
+        versions: data.versions.length,
+        tags: data.tags?.length || 0,
+        comments: data.comments?.length || 0,
+        metadata: data.metadata?.length || 0
+      }
+    };
+  }
+
+  _assertArrayField(data, fieldName) {
+    if (!Array.isArray(data[fieldName])) {
+      throw new Error(`JSON 檔案不包含有效的 ${fieldName} 陣列`);
+    }
+  }
+
+  async _verifyChecksum(data) {
+    if (!data.checksum) {
+      throw new Error('檔案缺少 checksum，無法確認備份內容完整性');
+    }
+
+    let checksumSource;
+    if (data.exportType === 'full' || data.exportType === 'selective') {
+      checksumSource = data.formatVersion === '3.0'
+        ? {
+          projects: data.projects || [],
+          scripts: data.scripts || [],
+          versions: data.versions,
+          tags: data.tags || [],
+          comments: data.comments || []
+        }
+        : {
+          projects: data.projects || [],
+          versions: data.versions,
+          tags: data.tags || [],
+          comments: data.comments || []
+        };
+    } else {
+      checksumSource = data.versions;
+    }
+
+    const actualChecksum = await this.diffEngine.computeHash(JSON.stringify(checksumSource));
+    if (actualChecksum !== data.checksum) {
+      throw new Error('檔案校驗失敗，資料可能已損壞');
+    }
+  }
+
+  async _verifyVersionRecords(data, options = {}) {
+    const { strict = false } = options;
+    const requiredFields = strict
+      ? ['versionId', 'projectId', 'scriptId', 'timestamp', 'label', 'author', 'contentHash', 'fullContent']
+      : ['versionId'];
+
+    for (const version of data.versions) {
+      for (const field of requiredFields) {
+        if (version[field] === undefined || version[field] === null || version[field] === '') {
+          throw new Error(`版本資料缺少必要欄位：${field}`);
+        }
+      }
+
+      const normalizedVersion = await this._normalizeImportedVersionRecord(version);
+      if (normalizedVersion.contentHash) {
+        const actualHash = await this.diffEngine.computeHash(normalizedVersion.fullContent || '');
+        if (actualHash !== normalizedVersion.contentHash) {
+          throw new Error(`版本 ${normalizedVersion.versionId} 內容 hash 驗證失敗`);
+        }
+      }
+    }
+  }
+
+  async getFullRestorePreview(jsonData, options = {}) {
+    const { conflictStrategy = 'skip', clearExisting = false } = options;
+    const validation = await this.validateImportData(jsonData, { requireFull: true });
+    const data = validation.data;
+
+    const [localProjects, localScripts, localVersions, localCounts] = await Promise.all([
+      this._getAllProjects(),
+      this._getAllScripts(),
+      this.db.getAllVersions(),
+      this.db.getDataCounts()
+    ]);
+
+    const localProjectIds = new Set(localProjects.map(project => project.projectId));
+    const localScriptIds = new Set(localScripts.map(script => script.scriptId));
+    const localVersionIds = new Set(localVersions.map(version => version.versionId));
+    const localScriptNames = new Set(localScripts.map(script => `${script.projectId}\u0000${script.scriptName}`));
+
+    const preview = {
+      clearExisting,
+      clearCounts: clearExisting ? localCounts : null,
+      projects: this._previewEntity(data.projects || [], localProjectIds, conflictStrategy),
+      scripts: this._previewScripts(data.scripts || [], localScriptIds, localScriptNames, conflictStrategy),
+      versions: this._previewEntity(data.versions || [], localVersionIds, conflictStrategy, true),
+      tags: { imported: data.tags?.length || 0, skipped: 0, overwritten: 0, merged: 0 },
+      comments: { imported: data.comments?.length || 0, skipped: 0, overwritten: 0, merged: 0 },
+      metadata: { imported: data.metadata?.length || 0, skipped: 0, overwritten: 0, merged: 0 },
+      conflicts: []
+    };
+
+    if (clearExisting) {
+      for (const key of ['projects', 'scripts', 'versions']) {
+        preview[key].imported = data[key]?.length || 0;
+        preview[key].skipped = 0;
+        preview[key].overwritten = 0;
+        preview[key].merged = 0;
+      }
+    }
+
+    for (const version of data.versions || []) {
+      if (localVersionIds.has(version.versionId) && !clearExisting) {
+        preview.conflicts.push({
+          type: 'version',
+          id: version.versionId,
+          label: version.label || ''
+        });
+      }
+    }
+
+    return preview;
+  }
+
+  _previewEntity(items, localIds, strategy, allowMerge = false) {
+    const result = { imported: 0, skipped: 0, overwritten: 0, merged: 0 };
+    for (const item of items) {
+      const id = item.projectId || item.versionId || item.tagId || item.commentId || item.key;
+      if (!localIds.has(id)) {
+        result.imported++;
+      } else if (allowMerge && strategy === 'merge') {
+        result.merged++;
+      } else if (strategy === 'overwrite') {
+        result.overwritten++;
+      } else {
+        result.skipped++;
+      }
+    }
+    return result;
+  }
+
+  _previewScripts(scripts, localScriptIds, localScriptNames, strategy) {
+    const result = { imported: 0, skipped: 0, overwritten: 0, merged: 0 };
+    for (const script of scripts) {
+      const exists = localScriptIds.has(script.scriptId) ||
+        localScriptNames.has(`${script.projectId}\u0000${script.scriptName}`);
+      if (!exists) {
+        result.imported++;
+      } else if (strategy === 'overwrite') {
+        result.overwritten++;
+      } else {
+        result.skipped++;
+      }
+    }
+    return result;
+  }
+
   /**
    * 導入 JSON 檔案
    * 返回 { isValid, conflicts, data }
    */
   async importFromJSON(jsonContent) {
-    let jsonData;
-    
-    try {
-      if (typeof jsonContent === 'string') {
-        jsonData = JSON.parse(jsonContent);
-      } else {
-        jsonData = jsonContent;
-      }
-    } catch (error) {
-      throw new Error('無效的 JSON 格式');
-    }
-
-    // 驗證格式
-    if (!jsonData.versions || !Array.isArray(jsonData.versions)) {
-      throw new Error('JSON 檔案不包含 versions 數組');
-    }
-
-    // 驗證校驗和
-    if (jsonData.checksum) {
-      const jsonString = JSON.stringify(jsonData.versions);
-      const actualChecksum = await this.diffEngine.computeHash(jsonString);
-      if (actualChecksum !== jsonData.checksum) {
-        throw new Error('檔案校驗失敗，數據可能已損壞');
-      }
-    }
-
-    // 基本欄位提示（但不阻斷導入，以便舊匯出檔可被修復性導入）
-    for (const version of jsonData.versions) {
-      const hasFullContent = version.fullContent !== undefined && version.fullContent !== null;
-      if (!hasFullContent && !version.diffData) {
-        console.warn(`版本 ${version.versionId || '(未知)'} 缺少內容，將嘗試以空內容導入`);
-      }
-    }
+    const validation = await this.validateImportData(jsonContent);
+    const jsonData = validation.data;
 
     // 檢測衝突
     const conflicts = await this._detectConflicts(jsonData.versions);
@@ -562,34 +721,9 @@ class ImportExportManager {
     console.log(`  - 衝突策略: ${conflictStrategy}`);
     console.log(`  - 清空現有資料: ${clearExisting}`);
 
-    // 驗證格式
-    if (!['2.0', '3.0'].includes(jsonData.formatVersion) || jsonData.exportType !== 'full') {
-      throw new Error('不是有效的完整備份檔案（需要 formatVersion 2.0/3.0 且 exportType 為 full）');
-    }
-
-    // 驗證校驗和
-    if (jsonData.checksum) {
-      const checksumSource = jsonData.formatVersion === '3.0'
-        ? {
-          projects: jsonData.projects,
-          scripts: jsonData.scripts || [],
-          versions: jsonData.versions,
-          tags: jsonData.tags,
-          comments: jsonData.comments
-        }
-        : {
-          projects: jsonData.projects,
-          versions: jsonData.versions,
-          tags: jsonData.tags,
-          comments: jsonData.comments
-        };
-      const dataString = JSON.stringify(checksumSource);
-      const actualChecksum = await this.diffEngine.computeHash(dataString);
-      if (actualChecksum !== jsonData.checksum) {
-        throw new Error('檔案校驗失敗，資料可能已損壞');
-      }
-      console.log('✓ 校驗和驗證通過');
-    }
+    const validation = await this.validateImportData(jsonData, { requireFull: true });
+    jsonData = validation.data;
+    console.log('✓ 備份檔案驗證通過');
 
     const results = {
       projects: { imported: 0, skipped: 0, overwritten: 0, errors: [] },
@@ -1041,20 +1175,18 @@ class ImportExportManager {
    * 輔助方法：清空所有資料
    */
   async _clearAllData() {
-    const stores = ['projects', 'sqlScripts', 'versions', 'tags', 'comments', 'metadata'];
-    
-    for (const storeName of stores) {
-      if (this.db.db.objectStoreNames.contains(storeName)) {
-        await new Promise((resolve, reject) => {
-          const tx = this.db.db.transaction(storeName, 'readwrite');
-          const store = tx.objectStore(storeName);
-          const request = store.clear();
+    const stores = ['projects', 'sqlScripts', 'versions', 'tags', 'comments', 'metadata']
+      .filter(storeName => this.db.db.objectStoreNames.contains(storeName));
 
-          request.onsuccess = () => resolve();
-          request.onerror = () => reject(request.error);
-        });
+    await new Promise((resolve, reject) => {
+      const tx = this.db.db.transaction(stores, 'readwrite');
+      for (const storeName of stores) {
+        tx.objectStore(storeName).clear();
       }
-    }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('清空資料交易已中止'));
+    });
   }
 
 }

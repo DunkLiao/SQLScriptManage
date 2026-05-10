@@ -250,10 +250,11 @@ class SQLVersionApp {
     }
     const btnClearAllData = document.getElementById('btnClearAllData');
     if (btnClearAllData && moreMenu) {
-      btnClearAllData.addEventListener('click', () => {
+      btnClearAllData.addEventListener('click', async () => {
         moreMenu.style.display = 'none';
         const clearAllModal = document.getElementById('clearAllModal');
         if (clearAllModal) {
+          await this.showClearAllImpactSummary();
           clearAllModal.style.display = 'flex';
         }
       });
@@ -556,6 +557,15 @@ class SQLVersionApp {
     const btnConfirmFullRestore = document.getElementById('btnConfirmFullRestore');
     if (btnConfirmFullRestore) {
       btnConfirmFullRestore.addEventListener('click', () => this.performFullRestore());
+    }
+
+    document.querySelectorAll('input[name="restoreStrategy"]').forEach(input => {
+      input.addEventListener('change', () => this.updateFullRestorePreview());
+    });
+
+    const restoreClearExisting = document.getElementById('restoreClearExisting');
+    if (restoreClearExisting) {
+      restoreClearExisting.addEventListener('change', () => this.updateFullRestorePreview());
     }
 
     // 完整還原檔案輸入
@@ -1054,6 +1064,134 @@ class SQLVersionApp {
     // 版本資訊面板已移除
   }
 
+  renderImpactSummary(container, title, items, options = {}) {
+    if (!container) return;
+    container.innerHTML = '';
+    container.hidden = false;
+
+    const heading = document.createElement('p');
+    heading.className = options.danger ? 'impact-title impact-danger' : 'impact-title';
+    heading.textContent = title;
+    container.appendChild(heading);
+
+    const grid = document.createElement('div');
+    grid.className = 'impact-grid';
+
+    for (const item of items) {
+      const cell = document.createElement('div');
+      cell.className = 'impact-item';
+      const label = document.createElement('strong');
+      label.textContent = item.label;
+      const value = document.createElement('span');
+      value.textContent = item.value;
+      cell.appendChild(label);
+      cell.appendChild(value);
+      grid.appendChild(cell);
+    }
+
+    container.appendChild(grid);
+  }
+
+  confirmDangerAction({ title, message, items = [], confirmText = '確認執行' }) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.style.display = 'flex';
+
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+
+      const header = document.createElement('div');
+      header.className = 'modal-header';
+      const heading = document.createElement('h2');
+      heading.textContent = title;
+      const close = document.createElement('button');
+      close.className = 'btn-close';
+      close.type = 'button';
+      close.textContent = '×';
+      header.appendChild(heading);
+      header.appendChild(close);
+
+      const body = document.createElement('div');
+      body.className = 'modal-body';
+      const callout = document.createElement('div');
+      callout.className = 'callout callout-danger';
+      const calloutTitle = document.createElement('p');
+      calloutTitle.className = 'callout-title';
+      calloutTitle.textContent = '此操作無法復原';
+      const calloutMessage = document.createElement('p');
+      calloutMessage.textContent = message;
+      callout.appendChild(calloutTitle);
+      callout.appendChild(calloutMessage);
+      body.appendChild(callout);
+
+      if (items.length > 0) {
+        const summary = document.createElement('div');
+        summary.className = 'impact-summary';
+        this.renderImpactSummary(summary, '影響摘要', items, { danger: true });
+        body.appendChild(summary);
+      }
+
+      const footer = document.createElement('div');
+      footer.className = 'modal-footer';
+      const cancel = document.createElement('button');
+      cancel.className = 'btn btn-ghost';
+      cancel.type = 'button';
+      cancel.textContent = '取消';
+      const confirm = document.createElement('button');
+      confirm.className = 'btn btn-danger';
+      confirm.type = 'button';
+      confirm.textContent = confirmText;
+      footer.appendChild(cancel);
+      footer.appendChild(confirm);
+
+      modal.appendChild(header);
+      modal.appendChild(body);
+      modal.appendChild(footer);
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      const cleanup = (result) => {
+        overlay.remove();
+        resolve(result);
+      };
+
+      close.addEventListener('click', () => cleanup(false));
+      cancel.addEventListener('click', () => cleanup(false));
+      confirm.addEventListener('click', () => cleanup(true));
+      overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) cleanup(false);
+      });
+    });
+  }
+
+  formatImpactStats(stats) {
+    return [
+      `SQL 腳本 ${stats.scripts || 0}`,
+      `版本 ${stats.versions || 0}`,
+      `標籤 ${stats.tags || 0}`,
+      `批註 ${stats.comments || 0}`
+    ].join('、');
+  }
+
+  async showClearAllImpactSummary() {
+    const container = document.getElementById('clearAllImpactSummary');
+    try {
+      const counts = await this.db.getDataCounts();
+      this.renderImpactSummary(container, '將被清除的現有資料', [
+        { label: '專案', value: counts.projects },
+        { label: 'SQL 腳本', value: counts.scripts },
+        { label: '版本', value: counts.versions },
+        { label: '標籤', value: counts.tags },
+        { label: '批註', value: counts.comments }
+      ], { danger: true });
+    } catch (error) {
+      this.renderImpactSummary(container, '無法取得影響摘要', [
+        { label: '錯誤', value: error.message }
+      ], { danger: true });
+    }
+  }
+
   /**
    * 刪除版本
    */
@@ -1063,7 +1201,24 @@ class SQLVersionApp {
       return;
     }
 
-    if (confirm(`確定要刪除版本 ${this.selectedVersionId} 嗎？此操作無法撤銷。`)) {
+    try {
+      const version = await this.versionManager.getVersion(this.selectedVersionId);
+      const stats = await this.db.getVersionImpactStats(this.selectedVersionId);
+      const timestamp = version?.timestamp ? new Date(version.timestamp).toLocaleString('zh-TW') : '未知';
+      const confirmed = await this.confirmDangerAction({
+        title: '刪除版本',
+        message: `確定要刪除版本「${version?.label || this.selectedVersionId}」嗎？`,
+        confirmText: '刪除版本',
+        items: [
+          { label: '版本 ID', value: this.selectedVersionId },
+          { label: '作者', value: version?.author || '未知' },
+          { label: '時間', value: timestamp },
+          { label: '同時刪除', value: this.formatImpactStats(stats) }
+        ]
+      });
+
+      if (!confirmed) return;
+
       try {
         await this.versionManager.deleteVersion(this.selectedVersionId);
         alert('版本已刪除');
@@ -1084,6 +1239,8 @@ class SQLVersionApp {
       } catch (error) {
         alert('刪除失敗：' + error.message);
       }
+    } catch (error) {
+      alert('刪除前檢查失敗：' + error.message);
     }
   }
 
@@ -1240,7 +1397,8 @@ class SQLVersionApp {
       }
 
       const text = await file.text();
-      const importData = JSON.parse(text);
+      const result = await this.importExportManager.importFromJSON(text);
+      const importData = result.data;
 
       // v3 新增：先讓使用者選擇目標專案
       const targetProjectId = await this.showImportProjectSelector();
@@ -1252,9 +1410,6 @@ class SQLVersionApp {
 
       // 保存目標專案以供後續使用
       this.pendingImportData = { importData, targetProjectId };
-
-      // 驗證導入數據
-      const result = await this.importExportManager.importFromJSON(importData);
 
       if (result.conflicts.length > 0) {
         // 顯示衝突確認對話框
@@ -1338,38 +1493,58 @@ class SQLVersionApp {
     conflictList.innerHTML = '';
 
     for (const conflict of result.conflicts) {
-      const conflictHtml = `
-        <div class="conflict-item">
-          <div class="conflict-header">
-            <span class="conflict-type">⚠️ ${conflict.type === 'version_exists' ? '版本 ID 重複' : '孤立版本'}</span>
-            <span class="conflict-version">${conflict.versionId}</span>
-          </div>
-          <div class="conflict-detail">
-            ${conflict.type === 'version_exists' ? `
-              <p><strong>本地版本：</strong> ${new Date(conflict.local.timestamp).toLocaleString('zh-TW')}</p>
-              <p><strong>導入版本：</strong> ${new Date(conflict.import.timestamp).toLocaleString('zh-TW')}</p>
-              <p><strong>內容一致：</strong> ${conflict.contentMatch ? '是' : '否'}</p>
-              <div class="conflict-actions">
-                <label class="radio-button">
-                  <input type="radio" name="conflict_${conflict.versionId}" value="skip" checked />
-                  <span>跳過</span>
-                </label>
-                <label class="radio-button">
-                  <input type="radio" name="conflict_${conflict.versionId}" value="overwrite" />
-                  <span>覆蓋</span>
-                </label>
-                <label class="radio-button">
-                  <input type="radio" name="conflict_${conflict.versionId}" value="merge" />
-                  <span>合併</span>
-                </label>
-              </div>
-            ` : `
-              <p>${conflict.message}</p>
-            `}
-          </div>
-        </div>
-      `;
-      conflictList.innerHTML += conflictHtml;
+      const item = document.createElement('div');
+      item.className = 'conflict-item';
+      item.dataset.versionId = conflict.versionId;
+
+      const header = document.createElement('div');
+      header.className = 'conflict-header';
+      const type = document.createElement('span');
+      type.className = 'conflict-type';
+      type.textContent = conflict.type === 'version_exists' ? '版本 ID 重複' : '孤立版本';
+      const version = document.createElement('span');
+      version.className = 'conflict-version';
+      version.textContent = conflict.versionId;
+      header.appendChild(type);
+      header.appendChild(version);
+      item.appendChild(header);
+
+      const detail = document.createElement('div');
+      detail.className = 'conflict-detail';
+      if (conflict.type === 'version_exists') {
+        const local = document.createElement('p');
+        local.textContent = `本地版本：${new Date(conflict.local.timestamp).toLocaleString('zh-TW')}`;
+        const imported = document.createElement('p');
+        imported.textContent = `導入版本：${new Date(conflict.import.timestamp).toLocaleString('zh-TW')}`;
+        const same = document.createElement('p');
+        same.textContent = `內容一致：${conflict.contentMatch ? '是' : '否'}`;
+        const actions = document.createElement('div');
+        actions.className = 'conflict-actions';
+        for (const [value, label] of [['skip', '跳過'], ['overwrite', '覆蓋'], ['merge', '合併']]) {
+          const radioLabel = document.createElement('label');
+          radioLabel.className = 'radio-button';
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = `conflict_${conflict.versionId}`;
+          input.value = value;
+          input.checked = value === 'skip';
+          const span = document.createElement('span');
+          span.textContent = label;
+          radioLabel.appendChild(input);
+          radioLabel.appendChild(span);
+          actions.appendChild(radioLabel);
+        }
+        detail.appendChild(local);
+        detail.appendChild(imported);
+        detail.appendChild(same);
+        detail.appendChild(actions);
+      } else {
+        const message = document.createElement('p');
+        message.textContent = conflict.message || '缺失父版本';
+        detail.appendChild(message);
+      }
+      item.appendChild(detail);
+      conflictList.appendChild(item);
     }
 
     // 保存導入數據供稍後使用
@@ -1636,18 +1811,23 @@ class SQLVersionApp {
   async deleteProject(projectId, projectName) {
     const currentProjectId = this.projectManager.getCurrentProjectId();
     const isCurrentProject = projectId === currentProjectId;
-    
-    // 二次確認
-    const confirmed = confirm(
-      `確定要刪除專案「${projectName}」嗎？\n\n` +
-      '⚠️ 警告：此操作將刪除該專案下的所有版本記錄，且無法復原！'
-    );
-    
-    if (!confirmed) {
-      return;
-    }
-    
+
     try {
+      const stats = await this.db.getProjectImpactStats(projectId);
+      const confirmed = await this.confirmDangerAction({
+        title: '刪除專案',
+        message: `確定要刪除專案「${projectName}」嗎？建議先執行完整備份。`,
+        confirmText: '刪除專案',
+        items: [
+          { label: '專案', value: projectName },
+          { label: '同時刪除', value: this.formatImpactStats(stats) }
+        ]
+      });
+
+      if (!confirmed) {
+        return;
+      }
+
       // 如果要刪除的是當前專案，先切換到其他專案
       if (isCurrentProject) {
         const projects = this.projectManager.getProjects();
@@ -1762,35 +1942,41 @@ class SQLVersionApp {
 
       console.log('正在讀取備份檔案...');
       const text = await file.text();
-      const jsonData = JSON.parse(text);
-
-      // 驗證是否為完整備份檔案
-      if (!['2.0', '3.0'].includes(jsonData.formatVersion) || jsonData.exportType !== 'full') {
-        alert('這不是有效的完整備份檔案（需要 formatVersion 2.0/3.0 且 exportType 為 full）');
-        event.target.value = '';
-        return;
-      }
+      const validation = await this.importExportManager.validateImportData(text, { requireFull: true });
+      const jsonData = validation.data;
 
       // 顯示檔案資訊
       const restoreFileInfo = document.getElementById('restoreFileInfo');
       const restoreStats = document.getElementById('restoreStats');
-      
-      restoreStats.innerHTML = `
-        <div class="stats-grid">
-          <div><strong>匯出日期：</strong>${new Date(jsonData.exportDate).toLocaleString('zh-TW')}</div>
-          <div><strong>格式版本：</strong>${jsonData.formatVersion}</div>
-          <div><strong>專案數：</strong>${jsonData.totalProjects || 0}</div>
-          <div><strong>SQL 腳本數：</strong>${jsonData.totalScripts || (jsonData.scripts?.length || 0)}</div>
-          <div><strong>版本數：</strong>${jsonData.totalVersions || 0}</div>
-          <div><strong>標籤數：</strong>${jsonData.totalTags || 0}</div>
-          <div><strong>批註數：</strong>${jsonData.totalComments || 0}</div>
-        </div>
-      `;
+      restoreStats.innerHTML = '';
+      const statsGrid = document.createElement('div');
+      statsGrid.className = 'stats-grid';
+      const fileStats = [
+        ['匯出日期', jsonData.exportDate ? new Date(jsonData.exportDate).toLocaleString('zh-TW') : '未知'],
+        ['格式版本', jsonData.formatVersion],
+        ['專案數', validation.counts.projects],
+        ['SQL 腳本數', validation.counts.scripts],
+        ['版本數', validation.counts.versions],
+        ['標籤數', validation.counts.tags],
+        ['批註數', validation.counts.comments]
+      ];
+      for (const [label, value] of fileStats) {
+        const item = document.createElement('div');
+        const strong = document.createElement('strong');
+        strong.textContent = `${label}：`;
+        const span = document.createElement('span');
+        span.textContent = value;
+        item.appendChild(strong);
+        item.appendChild(span);
+        statsGrid.appendChild(item);
+      }
+      restoreStats.appendChild(statsGrid);
       
       restoreFileInfo.style.display = 'block';
 
       // 保存資料供還原使用
       this.pendingRestoreData = jsonData;
+      await this.updateFullRestorePreview();
 
       // 顯示還原對話框
       document.getElementById('fullRestoreModal').style.display = 'flex';
@@ -1801,6 +1987,45 @@ class SQLVersionApp {
 
     // 重置檔案輸入
     event.target.value = '';
+  }
+
+  async updateFullRestorePreview() {
+    if (!this.pendingRestoreData) return;
+
+    const container = document.getElementById('restoreImpactSummary');
+    const strategyEl = document.querySelector('input[name="restoreStrategy"]:checked');
+    const strategy = strategyEl ? strategyEl.value : 'skip';
+    const clearExisting = document.getElementById('restoreClearExisting')?.checked || false;
+
+    try {
+      const preview = await this.importExportManager.getFullRestorePreview(this.pendingRestoreData, {
+        conflictStrategy: strategy,
+        clearExisting
+      });
+
+      const items = [];
+      if (preview.clearCounts) {
+        items.push({
+          label: '會先清除',
+          value: `專案 ${preview.clearCounts.projects}、SQL 腳本 ${preview.clearCounts.scripts}、版本 ${preview.clearCounts.versions}、標籤 ${preview.clearCounts.tags}、批註 ${preview.clearCounts.comments}`
+        });
+      }
+
+      items.push(
+        { label: '專案', value: `新增 ${preview.projects.imported}、覆蓋 ${preview.projects.overwritten}、跳過 ${preview.projects.skipped}` },
+        { label: 'SQL 腳本', value: `新增 ${preview.scripts.imported}、覆蓋 ${preview.scripts.overwritten}、跳過 ${preview.scripts.skipped}` },
+        { label: '版本', value: `新增 ${preview.versions.imported}、覆蓋 ${preview.versions.overwritten}、合併 ${preview.versions.merged}、跳過 ${preview.versions.skipped}` },
+        { label: '標籤', value: `新增 ${preview.tags.imported}` },
+        { label: '批註', value: `新增 ${preview.comments.imported}` },
+        { label: '版本衝突', value: `${preview.conflicts.length} 筆` }
+      );
+
+      this.renderImpactSummary(container, '還原影響摘要', items, { danger: clearExisting });
+    } catch (error) {
+      this.renderImpactSummary(container, '還原檔案驗證失敗', [
+        { label: '錯誤', value: error.message }
+      ], { danger: true });
+    }
   }
 
   /**
@@ -1814,28 +2039,31 @@ class SQLVersionApp {
 
     const strategy = document.querySelector('input[name="restoreStrategy"]:checked').value;
     const clearExisting = document.getElementById('restoreClearExisting').checked;
+    let preview;
+
+    try {
+      preview = await this.importExportManager.getFullRestorePreview(this.pendingRestoreData, {
+        conflictStrategy: strategy,
+        clearExisting
+      });
+      await this.updateFullRestorePreview();
+    } catch (error) {
+      alert('還原檔案驗證失敗：' + error.message);
+      return;
+    }
 
     // 如果選擇清空現有資料，需要二次確認
     if (clearExisting) {
-      const confirmed = confirm(
-        '⚠️ 警告：您選擇了「清空所有現有資料」選項！\n\n' +
-        '此操作將永久刪除資料庫中的所有專案、版本、標籤和批註，\n' +
-        '然後匯入備份檔案的內容。\n\n' +
-        '此操作無法復原！是否確定要繼續？'
-      );
+      const confirmed = await this.confirmDangerAction({
+        title: '清空後還原',
+        message: '您選擇了「清空所有現有資料」選項。建議確認已有完整備份後再繼續。',
+        confirmText: '清空並還原',
+        items: [
+          { label: '將清除', value: `專案 ${preview.clearCounts.projects}、SQL 腳本 ${preview.clearCounts.scripts}、版本 ${preview.clearCounts.versions}、標籤 ${preview.clearCounts.tags}、批註 ${preview.clearCounts.comments}` }
+        ]
+      });
 
       if (!confirmed) {
-        return;
-      }
-
-      // 第三次確認（因為這是非常危險的操作）
-      const finalConfirm = confirm(
-        '最後確認：\n\n' +
-        '您真的要清空所有現有資料並還原備份嗎？\n' +
-        '點擊「確定」將開始執行，點擊「取消」將中止操作。'
-      );
-
-      if (!finalConfirm) {
         return;
       }
     }
@@ -2073,14 +2301,20 @@ class SQLVersionApp {
   }
 
   async deleteScript(scriptId, scriptName) {
-    const confirmed = confirm(
-      `確定要刪除 SQL 腳本「${scriptName}」嗎？\n\n` +
-      '此操作將刪除此 SQL 腳本下的所有版本、標籤和批註，且無法復原。'
-    );
-
-    if (!confirmed) return;
-
     try {
+      const stats = await this.db.getScriptImpactStats(scriptId);
+      const confirmed = await this.confirmDangerAction({
+        title: '刪除 SQL 腳本',
+        message: `確定要刪除 SQL 腳本「${scriptName}」嗎？建議先執行完整備份。`,
+        confirmText: '刪除 SQL 腳本',
+        items: [
+          { label: 'SQL 腳本', value: scriptName },
+          { label: '同時刪除', value: this.formatImpactStats(stats) }
+        ]
+      });
+
+      if (!confirmed) return;
+
       await this.scriptManager.deleteScript(scriptId);
       this.selectedVersionId = null;
       await this.updateScriptSelector();

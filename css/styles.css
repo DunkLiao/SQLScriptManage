@@ -1275,6 +1275,51 @@ select {
   background: var(--primary-soft);
 }
 
+.impact-summary {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.impact-summary[hidden] {
+  display: none;
+}
+
+.impact-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.impact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.impact-item {
+  min-width: 0;
+  padding: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.impact-item strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.impact-danger {
+  color: var(--error);
+  font-weight: 700;
+}
+
 @media (max-width: 1280px) {
   .navbar {
     grid-template-columns: 1fr;
