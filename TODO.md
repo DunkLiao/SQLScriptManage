@@ -14,13 +14,13 @@
 - [x] 清空全部資料前顯示目前專案、SQL 腳本、版本、標籤與批註總量。
 - [x] 高風險刪除/清空後還原流程使用一致的 modal 確認 UI。
 - [x] 完整還原清空資料時使用單一 IndexedDB transaction 清除資料。
-- [ ] 導入流程增加完整 preview，先顯示會新增、覆蓋、跳過、合併多少版本。
-- [ ] 清空全部資料 modal 增加「先完整備份」按鈕。
-- [ ] 還原寫入階段進一步收斂成更少 transaction，降低中途失敗留下部分資料的機率。
+- [x] 導入流程增加完整 preview，先顯示會新增、覆蓋、跳過、合併多少版本。
+- [x] 清空全部資料 modal 增加「先完整備份」按鈕。
+- [x] 還原寫入階段進一步收斂成更少 transaction，降低中途失敗留下部分資料的機率。
 
 ## 高優先：拆分過大的主控制器
 
-- [ ] 將 `js/app.js` 的彈窗與提示邏輯拆到 `js/ui/dialogs.js`。
+- [x] 將 `js/app.js` 的彈窗與提示邏輯拆到 `js/ui/dialogs.js`。
 - [ ] 將版本列表渲染、搜尋與右鍵選單拆到 `js/ui/versionTree.js`。
 - [ ] 將 Monaco 初始化、主題、快捷鍵與編輯器狀態拆到 `js/ui/editorController.js`。
 - [ ] 將匯入/匯出/備份/還原 UI 流程拆到 `js/ui/importExportDialogs.js`。

@@ -514,11 +514,24 @@ class SQLVersionApp {
     if (btnConfirmClearAll) {
       btnConfirmClearAll.addEventListener('click', () => this.confirmClearAllData());
     }
+    const btnBackupBeforeClearAll = document.getElementById('btnBackupBeforeClearAll');
+    if (btnBackupBeforeClearAll) {
+      btnBackupBeforeClearAll.addEventListener('click', async () => {
+        document.getElementById('clearAllModal').style.display = 'none';
+        await this.showFullBackupDialog();
+      });
+    }
 
     // v3 新增：導入目標專案選擇對話框（備用關閉按鈕）
     const btnCloseImportProject = document.getElementById('btnCloseImportProject');
     if (btnCloseImportProject) {
       btnCloseImportProject.addEventListener('click', () => {
+        document.getElementById('importProjectModal').style.display = 'none';
+      });
+    }
+    const btnCancelImportProject = document.getElementById('btnCancelImportProject');
+    if (btnCancelImportProject) {
+      btnCancelImportProject.addEventListener('click', () => {
         document.getElementById('importProjectModal').style.display = 'none';
       });
     }
@@ -561,6 +574,10 @@ class SQLVersionApp {
 
     document.querySelectorAll('input[name="restoreStrategy"]').forEach(input => {
       input.addEventListener('change', () => this.updateFullRestorePreview());
+    });
+
+    document.querySelectorAll('input[name="strategy"]').forEach(input => {
+      input.addEventListener('change', () => this.updateImportPreviewSummary());
     });
 
     const restoreClearExisting = document.getElementById('restoreClearExisting');
@@ -1065,104 +1082,11 @@ class SQLVersionApp {
   }
 
   renderImpactSummary(container, title, items, options = {}) {
-    if (!container) return;
-    container.innerHTML = '';
-    container.hidden = false;
-
-    const heading = document.createElement('p');
-    heading.className = options.danger ? 'impact-title impact-danger' : 'impact-title';
-    heading.textContent = title;
-    container.appendChild(heading);
-
-    const grid = document.createElement('div');
-    grid.className = 'impact-grid';
-
-    for (const item of items) {
-      const cell = document.createElement('div');
-      cell.className = 'impact-item';
-      const label = document.createElement('strong');
-      label.textContent = item.label;
-      const value = document.createElement('span');
-      value.textContent = item.value;
-      cell.appendChild(label);
-      cell.appendChild(value);
-      grid.appendChild(cell);
-    }
-
-    container.appendChild(grid);
+    dialogs.renderImpactSummary(container, title, items, options);
   }
 
   confirmDangerAction({ title, message, items = [], confirmText = '確認執行' }) {
-    return new Promise((resolve) => {
-      const overlay = document.createElement('div');
-      overlay.className = 'modal-overlay';
-      overlay.style.display = 'flex';
-
-      const modal = document.createElement('div');
-      modal.className = 'modal';
-
-      const header = document.createElement('div');
-      header.className = 'modal-header';
-      const heading = document.createElement('h2');
-      heading.textContent = title;
-      const close = document.createElement('button');
-      close.className = 'btn-close';
-      close.type = 'button';
-      close.textContent = '×';
-      header.appendChild(heading);
-      header.appendChild(close);
-
-      const body = document.createElement('div');
-      body.className = 'modal-body';
-      const callout = document.createElement('div');
-      callout.className = 'callout callout-danger';
-      const calloutTitle = document.createElement('p');
-      calloutTitle.className = 'callout-title';
-      calloutTitle.textContent = '此操作無法復原';
-      const calloutMessage = document.createElement('p');
-      calloutMessage.textContent = message;
-      callout.appendChild(calloutTitle);
-      callout.appendChild(calloutMessage);
-      body.appendChild(callout);
-
-      if (items.length > 0) {
-        const summary = document.createElement('div');
-        summary.className = 'impact-summary';
-        this.renderImpactSummary(summary, '影響摘要', items, { danger: true });
-        body.appendChild(summary);
-      }
-
-      const footer = document.createElement('div');
-      footer.className = 'modal-footer';
-      const cancel = document.createElement('button');
-      cancel.className = 'btn btn-ghost';
-      cancel.type = 'button';
-      cancel.textContent = '取消';
-      const confirm = document.createElement('button');
-      confirm.className = 'btn btn-danger';
-      confirm.type = 'button';
-      confirm.textContent = confirmText;
-      footer.appendChild(cancel);
-      footer.appendChild(confirm);
-
-      modal.appendChild(header);
-      modal.appendChild(body);
-      modal.appendChild(footer);
-      overlay.appendChild(modal);
-      document.body.appendChild(overlay);
-
-      const cleanup = (result) => {
-        overlay.remove();
-        resolve(result);
-      };
-
-      close.addEventListener('click', () => cleanup(false));
-      cancel.addEventListener('click', () => cleanup(false));
-      confirm.addEventListener('click', () => cleanup(true));
-      overlay.addEventListener('click', (event) => {
-        if (event.target === overlay) cleanup(false);
-      });
-    });
+    return dialogs.confirmDangerAction({ title, message, items, confirmText });
   }
 
   formatImpactStats(stats) {
@@ -1411,13 +1335,8 @@ class SQLVersionApp {
       // 保存目標專案以供後續使用
       this.pendingImportData = { importData, targetProjectId };
 
-      if (result.conflicts.length > 0) {
-        // 顯示衝突確認對話框
-        this.showConflictDialog(result, targetProjectId);
-      } else {
-        // 直接導入
-        await this.performImport({ importData, targetProjectId });
-      }
+      // 顯示完整 preview，讓使用者確認新增、覆蓋、跳過、合併數量後再寫入
+      await this.showConflictDialog(result, targetProjectId);
     } catch (error) {
       alert('導入失敗：' + error.message);
     }
@@ -1460,7 +1379,8 @@ class SQLVersionApp {
 
       // 處理確認
       const confirmBtn = document.getElementById('btnConfirmImportProject');
-      const cancelBtn = document.getElementById('btnCloseImportProject');
+      const closeBtn = document.getElementById('btnCloseImportProject');
+      const cancelBtn = document.getElementById('btnCancelImportProject');
 
       const handleConfirm = () => {
         const projectId = selector.value;
@@ -1477,10 +1397,12 @@ class SQLVersionApp {
 
       const cleanup = () => {
         confirmBtn.removeEventListener('click', handleConfirm);
+        closeBtn.removeEventListener('click', handleCancel);
         cancelBtn.removeEventListener('click', handleCancel);
       };
 
       confirmBtn.addEventListener('click', handleConfirm);
+      closeBtn.addEventListener('click', handleCancel);
       cancelBtn.addEventListener('click', handleCancel);
     });
   }
@@ -1488,9 +1410,27 @@ class SQLVersionApp {
   /**
    * 顯示衝突確認對話框
    */
-  showConflictDialog(result, targetProjectId = null) {
+  async showConflictDialog(result, targetProjectId = null) {
+    const title = document.getElementById('conflictModalTitle');
+    const intro = document.getElementById('importConfirmIntro');
+    const strategyPanel = document.getElementById('conflictStrategyPanel');
     const conflictList = document.getElementById('conflictList');
     conflictList.innerHTML = '';
+
+    if (title) {
+      title.textContent = result.conflicts.length > 0 ? '導入衝突確認' : '導入確認';
+    }
+    if (intro) {
+      intro.textContent = result.conflicts.length > 0
+        ? '檢測到以下版本衝突，請選擇處理方式並確認導入影響摘要。'
+        : '未檢測到版本 ID 衝突，請確認導入影響摘要後再執行。';
+    }
+    if (strategyPanel) {
+      strategyPanel.hidden = result.conflicts.length === 0;
+    }
+
+    const defaultStrategy = document.querySelector('input[name="strategy"][value="skipAll"]');
+    if (defaultStrategy) defaultStrategy.checked = true;
 
     for (const conflict of result.conflicts) {
       const item = document.createElement('div');
@@ -1528,6 +1468,7 @@ class SQLVersionApp {
           input.name = `conflict_${conflict.versionId}`;
           input.value = value;
           input.checked = value === 'skip';
+          input.addEventListener('change', () => this.updateImportPreviewSummary());
           const span = document.createElement('span');
           span.textContent = label;
           radioLabel.appendChild(input);
@@ -1552,37 +1493,67 @@ class SQLVersionApp {
       importData: result.data,
       targetProjectId: targetProjectId || this.projectManager.getCurrentProjectId()
     };
+    await this.updateImportPreviewSummary();
     document.getElementById('conflictModal').style.display = 'flex';
+  }
+
+  collectImportResolutions() {
+    const strategyEl = document.querySelector('input[name="strategy"]:checked');
+    const strategy = strategyEl ? strategyEl.value : 'skipAll';
+    const resolutions = {};
+
+    if (!this.pendingImportData?.importData?.versions) {
+      return resolutions;
+    }
+
+    if (strategy !== 'custom') {
+      for (const version of this.pendingImportData.importData.versions) {
+        resolutions[version.versionId] = strategy === 'skipAll' ? 'skip' :
+                                        strategy === 'overwriteAll' ? 'overwrite' :
+                                        'merge';
+      }
+      return resolutions;
+    }
+
+    const conflictItems = document.querySelectorAll('.conflict-item');
+    conflictItems.forEach((item) => {
+      const versionId = item.querySelector('.conflict-version').textContent;
+      const selected = item.querySelector(`input[name="conflict_${versionId}"]:checked`);
+      if (selected) {
+        resolutions[versionId] = selected.value;
+      }
+    });
+    return resolutions;
+  }
+
+  async updateImportPreviewSummary() {
+    const container = document.getElementById('importImpactSummary');
+    if (!container || !this.pendingImportData?.importData) return;
+
+    try {
+      const preview = await this.importExportManager.getImportPreview(this.pendingImportData.importData, {
+        targetProjectId: this.pendingImportData.targetProjectId,
+        resolutions: this.collectImportResolutions()
+      });
+
+      this.renderImpactSummary(container, '導入影響摘要', [
+        { label: 'SQL 腳本', value: `新增 ${preview.scripts.imported}、跳過 ${preview.scripts.skipped}` },
+        { label: '版本', value: `新增 ${preview.versions.imported}、覆蓋 ${preview.versions.overwritten}、合併 ${preview.versions.merged}、跳過 ${preview.versions.skipped}` },
+        { label: '版本衝突', value: `${preview.conflicts} 筆` },
+        { label: '孤立版本', value: `${preview.orphanVersions} 筆` }
+      ], { danger: preview.versions.overwritten > 0 });
+    } catch (error) {
+      this.renderImpactSummary(container, '導入影響摘要無法產生', [
+        { label: '錯誤', value: error.message }
+      ], { danger: true });
+    }
   }
 
   /**
    * 確認導入
    */
   async confirmImport() {
-    const strategy = document.querySelector('input[name="strategy"]:checked').value;
-    const resolutions = {};
-
-    if (strategy !== 'custom') {
-      // 對所有衝突應用相同策略
-      const conflicts = await this.importExportManager._detectConflicts(this.pendingImportData.importData.versions);
-      for (const conflict of conflicts) {
-        if (conflict.type === 'version_exists') {
-          resolutions[conflict.versionId] = strategy === 'skipAll' ? 'skip' :
-                                            strategy === 'overwriteAll' ? 'overwrite' :
-                                            'merge';
-        }
-      }
-    } else {
-      // 逐個讀取用戶選擇
-      const conflictItems = document.querySelectorAll('.conflict-item');
-      conflictItems.forEach((item) => {
-        const versionId = item.querySelector('.conflict-version').textContent;
-        const selected = item.querySelector(`input[name="conflict_${versionId}"]:checked`);
-        if (selected) {
-          resolutions[versionId] = selected.value;
-        }
-      });
-    }
+    const resolutions = this.collectImportResolutions();
 
     try {
       await this.performImport(this.pendingImportData, resolutions);

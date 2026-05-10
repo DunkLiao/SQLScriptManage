@@ -509,6 +509,64 @@ class ImportExportManager {
     return preview;
   }
 
+  async getImportPreview(jsonData, options = {}) {
+    const { targetProjectId = null, resolutions = {} } = options;
+    const data = this.parseJSONContent(jsonData);
+    const projectId = targetProjectId || this.projectManager.getCurrentProjectId();
+    if (!projectId) throw new Error('未指定導入目標專案');
+
+    const [localVersions, projectScripts] = await Promise.all([
+      this.db.getAllVersions(),
+      this.db.getScriptsByProject(projectId)
+    ]);
+
+    const localVersionIds = new Set(localVersions.map(version => version.versionId));
+    const localScriptNames = new Set(projectScripts.map(script => script.scriptName));
+    const preview = {
+      scripts: { imported: 0, skipped: 0, overwritten: 0, merged: 0 },
+      versions: { imported: 0, skipped: 0, overwritten: 0, merged: 0 },
+      conflicts: 0,
+      orphanVersions: 0
+    };
+
+    if (Array.isArray(data.scripts)) {
+      for (const script of data.scripts) {
+        if (localScriptNames.has(script.scriptName)) {
+          preview.scripts.skipped++;
+        } else {
+          preview.scripts.imported++;
+          localScriptNames.add(script.scriptName);
+        }
+      }
+    }
+
+    for (const version of data.versions || []) {
+      const exists = localVersionIds.has(version.versionId);
+      const resolution = resolutions[version.versionId] || 'skip';
+      if (!exists) {
+        preview.versions.imported++;
+      } else if (resolution === 'overwrite') {
+        preview.versions.overwritten++;
+        preview.conflicts++;
+      } else if (resolution === 'merge') {
+        preview.versions.merged++;
+        preview.conflicts++;
+      } else {
+        preview.versions.skipped++;
+        preview.conflicts++;
+      }
+
+      if (version.parentVersionId) {
+        const parentInImport = data.versions.some(item => item.versionId === version.parentVersionId);
+        if (!parentInImport && !localVersionIds.has(version.parentVersionId)) {
+          preview.orphanVersions++;
+        }
+      }
+    }
+
+    return preview;
+  }
+
   _previewEntity(items, localIds, strategy, allowMerge = false) {
     const result = { imported: 0, skipped: 0, overwritten: 0, merged: 0 };
     for (const item of items) {
@@ -735,179 +793,17 @@ class ImportExportManager {
     };
 
     try {
-      // 步驟 1: 清空現有資料（如果需要）
       if (clearExisting) {
         console.log('清空現有資料...');
         await this._clearAllData();
         console.log('✓ 現有資料已清空');
       }
 
-      // 步驟 2: 匯入專案
-      if (jsonData.projects && Array.isArray(jsonData.projects)) {
-        console.log(`匯入 ${jsonData.projects.length} 個專案...`);
-        for (const project of jsonData.projects) {
-          try {
-            const existingProject = await this._getProject(project.projectId);
-            
-            if (existingProject) {
-              if (conflictStrategy === 'overwrite') {
-                await this._saveProject(project);
-                results.projects.overwritten++;
-              } else {
-                results.projects.skipped++;
-              }
-            } else {
-              await this._saveProject(project);
-              results.projects.imported++;
-            }
-          } catch (error) {
-            results.projects.errors.push({
-              projectId: project.projectId,
-              error: error.message
-            });
-          }
-        }
-        console.log(`✓ 專案匯入完成 (新增: ${results.projects.imported}, 覆蓋: ${results.projects.overwritten}, 跳過: ${results.projects.skipped})`);
-      }
-
-      // 步驟 3: 匯入版本
-      if (jsonData.scripts && Array.isArray(jsonData.scripts)) {
-        console.log(`匯入 ${jsonData.scripts.length} 支 SQL 腳本...`);
-        for (const script of jsonData.scripts) {
-          try {
-            const existingScript = await this.db.getScript(script.scriptId);
-            const sameNameScript = (await this.db.getScriptsByProject(script.projectId))
-              .find(item => item.scriptName === script.scriptName);
-            if (existingScript) {
-              if (conflictStrategy === 'overwrite') {
-                await this._saveScript(script);
-                results.scripts.overwritten++;
-              } else {
-                results.scripts.skipped++;
-              }
-            } else if (sameNameScript) {
-              if (conflictStrategy === 'overwrite') {
-                await this._saveScript({ ...script, scriptId: sameNameScript.scriptId });
-                results.scripts.overwritten++;
-              } else {
-                results.scripts.skipped++;
-              }
-            } else {
-              await this.db.saveScript(script);
-              results.scripts.imported++;
-            }
-          } catch (error) {
-            results.scripts.errors.push({
-              scriptId: script.scriptId,
-              error: error.message
-            });
-          }
-        }
-        console.log(`✓ SQL 腳本匯入完成 (新增: ${results.scripts.imported}, 覆蓋: ${results.scripts.overwritten}, 跳過: ${results.scripts.skipped})`);
-      } else if (jsonData.projects && Array.isArray(jsonData.projects)) {
-        for (const project of jsonData.projects) {
-          await this._ensureDefaultScript(project.projectId);
-        }
-      }
-
-      // 步驟 3: 匯入版本
-      if (jsonData.versions && Array.isArray(jsonData.versions)) {
-        console.log(`匯入 ${jsonData.versions.length} 個版本...`);
-        
-        for (const importVersion of jsonData.versions) {
-          try {
-            const versionRecord = await this._normalizeImportedVersionRecord(importVersion);
-            if (!versionRecord.scriptId) {
-              const defaultScript = await this._ensureDefaultScript(versionRecord.projectId);
-              versionRecord.scriptId = defaultScript.scriptId;
-            }
-            const existingVersion = await this.db.getVersion(versionRecord.versionId);
-
-            if (existingVersion) {
-              if (conflictStrategy === 'overwrite') {
-                await this._overwriteVersion(versionRecord);
-                results.versions.overwritten++;
-              } else if (conflictStrategy === 'merge') {
-                const newVersionId = this.versionManager._generateVersionId();
-                versionRecord.versionId = newVersionId;
-                versionRecord.parentVersionId = existingVersion.versionId;
-                await this.db.saveVersion(versionRecord);
-                results.versions.merged++;
-              } else {
-                results.versions.skipped++;
-              }
-            } else {
-              await this.db.saveVersion(versionRecord);
-              results.versions.imported++;
-            }
-          } catch (error) {
-            results.versions.errors.push({
-              versionId: importVersion.versionId,
-              error: error.message
-            });
-          }
-        }
-        console.log(`✓ 版本匯入完成 (新增: ${results.versions.imported}, 覆蓋: ${results.versions.overwritten}, 合併: ${results.versions.merged}, 跳過: ${results.versions.skipped})`);
-      }
-
-      // 步驟 4: 匯入標籤
-      if (jsonData.tags && Array.isArray(jsonData.tags)) {
-        console.log(`匯入 ${jsonData.tags.length} 個標籤...`);
-        for (const tag of jsonData.tags) {
-          try {
-            await this.db.saveTag(tag);
-            results.tags.imported++;
-          } catch (error) {
-            if (error.name === 'ConstraintError') {
-              results.tags.skipped++;
-            } else {
-              results.tags.errors.push({
-                tagId: tag.tagId,
-                error: error.message
-              });
-            }
-          }
-        }
-        console.log(`✓ 標籤匯入完成 (新增: ${results.tags.imported}, 跳過: ${results.tags.skipped})`);
-      }
-
-      // 步驟 5: 匯入批註
-      if (jsonData.comments && Array.isArray(jsonData.comments)) {
-        console.log(`匯入 ${jsonData.comments.length} 個批註...`);
-        for (const comment of jsonData.comments) {
-          try {
-            await this.db.saveComment(comment);
-            results.comments.imported++;
-          } catch (error) {
-            if (error.name === 'ConstraintError') {
-              results.comments.skipped++;
-            } else {
-              results.comments.errors.push({
-                commentId: comment.commentId,
-                error: error.message
-              });
-            }
-          }
-        }
-        console.log(`✓ 批註匯入完成 (新增: ${results.comments.imported}, 跳過: ${results.comments.skipped})`);
-      }
-
-      // 步驟 6: 匯入元數據
-      if (jsonData.metadata && Array.isArray(jsonData.metadata)) {
-        console.log(`匯入 ${jsonData.metadata.length} 筆元數據...`);
-        for (const meta of jsonData.metadata) {
-          try {
-            await this._saveMetadata(meta);
-            results.metadata.imported++;
-          } catch (error) {
-            results.metadata.errors.push({
-              key: meta.key,
-              error: error.message
-            });
-          }
-        }
-        console.log(`✓ 元數據匯入完成 (新增: ${results.metadata.imported})`);
-      }
+      await this._importFullDatabaseInTransaction(jsonData, {
+        conflictStrategy,
+        clearExisting,
+        results
+      });
 
       console.log('✓ 完整資料庫匯入完成');
 
@@ -917,6 +813,216 @@ class ImportExportManager {
     }
 
     return results;
+  }
+
+  async _importFullDatabaseInTransaction(jsonData, options) {
+    const { conflictStrategy, results } = options;
+    const [localProjects, localScripts, localVersions] = await Promise.all([
+      this._getAllProjects(),
+      this._getAllScripts(),
+      this.db.getAllVersions()
+    ]);
+
+    const projectIds = new Set(localProjects.map(project => project.projectId));
+    const scriptIds = new Set(localScripts.map(script => script.scriptId));
+    const scriptNames = new Map();
+    for (const script of localScripts) {
+      scriptNames.set(`${script.projectId}\u0000${script.scriptName}`, script);
+    }
+    const versionMap = new Map(localVersions.map(version => [version.versionId, version]));
+
+    const projectOps = [];
+    const scriptOps = [];
+    const versionOps = [];
+    const tagOps = [];
+    const commentOps = [];
+    const metadataOps = [];
+    const defaultScriptByProject = new Map();
+
+    for (const project of jsonData.projects || []) {
+      if (projectIds.has(project.projectId)) {
+        if (conflictStrategy === 'overwrite') {
+          projectOps.push({ type: 'put', record: project });
+          results.projects.overwritten++;
+        } else {
+          results.projects.skipped++;
+        }
+      } else {
+        projectOps.push({ type: 'add', record: project });
+        projectIds.add(project.projectId);
+        results.projects.imported++;
+      }
+    }
+
+    for (const script of jsonData.scripts || []) {
+      const sameNameScript = scriptNames.get(`${script.projectId}\u0000${script.scriptName}`);
+      if (scriptIds.has(script.scriptId)) {
+        if (conflictStrategy === 'overwrite') {
+          scriptOps.push({ type: 'put', record: script });
+          results.scripts.overwritten++;
+        } else {
+          results.scripts.skipped++;
+        }
+      } else if (sameNameScript) {
+        if (conflictStrategy === 'overwrite') {
+          scriptOps.push({ type: 'put', record: { ...script, scriptId: sameNameScript.scriptId } });
+          results.scripts.overwritten++;
+        } else {
+          results.scripts.skipped++;
+        }
+      } else {
+        scriptOps.push({ type: 'add', record: script });
+        scriptIds.add(script.scriptId);
+        scriptNames.set(`${script.projectId}\u0000${script.scriptName}`, script);
+        results.scripts.imported++;
+      }
+    }
+
+    const ensureDefaultScriptRecord = (projectId) => {
+      if (defaultScriptByProject.has(projectId)) return defaultScriptByProject.get(projectId);
+
+      const existing = Array.from(scriptNames.values())
+        .find(script => script.projectId === projectId && (script.scriptName === 'main' || script.scriptName === 'main.sql')) ||
+        Array.from(scriptNames.values()).find(script => script.projectId === projectId);
+
+      if (existing) {
+        defaultScriptByProject.set(projectId, existing);
+        return existing;
+      }
+
+      const project = (jsonData.projects || []).find(item => item.projectId === projectId) ||
+        localProjects.find(item => item.projectId === projectId);
+      const now = Date.now();
+      const script = {
+        scriptId: `script_${projectId}_${now}_${Math.random().toString(36).substr(2, 6)}`,
+        projectId,
+        scriptName: 'main',
+        description: '',
+        rootVersionId: project?.rootVersionId || null,
+        createdAt: project?.createdAt || now,
+        updatedAt: now
+      };
+      scriptOps.push({ type: 'add', record: script });
+      scriptIds.add(script.scriptId);
+      scriptNames.set(`${projectId}\u0000${script.scriptName}`, script);
+      defaultScriptByProject.set(projectId, script);
+      results.scripts.imported++;
+      return script;
+    };
+
+    if (!Array.isArray(jsonData.scripts) && Array.isArray(jsonData.projects)) {
+      for (const project of jsonData.projects) {
+        ensureDefaultScriptRecord(project.projectId);
+      }
+    }
+
+    for (const importVersion of jsonData.versions || []) {
+      try {
+        const versionRecord = await this._normalizeImportedVersionRecord(importVersion);
+        if (!versionRecord.scriptId) {
+          versionRecord.scriptId = ensureDefaultScriptRecord(versionRecord.projectId).scriptId;
+        }
+
+        const existingVersion = versionMap.get(versionRecord.versionId);
+        if (existingVersion) {
+          if (conflictStrategy === 'overwrite') {
+            versionOps.push({ type: 'put', record: versionRecord });
+            results.versions.overwritten++;
+          } else if (conflictStrategy === 'merge') {
+            versionRecord.versionId = this.versionManager._generateVersionId();
+            versionRecord.parentVersionId = existingVersion.versionId;
+            versionOps.push({ type: 'add', record: versionRecord });
+            results.versions.merged++;
+          } else {
+            results.versions.skipped++;
+          }
+        } else {
+          versionOps.push({ type: 'add', record: versionRecord });
+          versionMap.set(versionRecord.versionId, versionRecord);
+          results.versions.imported++;
+        }
+      } catch (error) {
+        results.versions.errors.push({
+          versionId: importVersion.versionId,
+          error: error.message
+        });
+      }
+    }
+
+    for (const tag of jsonData.tags || []) tagOps.push(tag);
+    for (const comment of jsonData.comments || []) commentOps.push(comment);
+    for (const meta of jsonData.metadata || []) metadataOps.push(meta);
+
+    await this._writeFullImportBatch({
+      projectOps,
+      scriptOps,
+      versionOps,
+      tagOps,
+      commentOps,
+      metadataOps,
+      results
+    });
+  }
+
+  async _writeFullImportBatch(batch) {
+    const stores = ['projects', 'sqlScripts', 'versions', 'tags', 'comments', 'metadata']
+      .filter(storeName => this.db.db.objectStoreNames.contains(storeName));
+
+    await new Promise((resolve, reject) => {
+      const tx = this.db.db.transaction(stores, 'readwrite');
+      const projectStore = tx.objectStore('projects');
+      const scriptStore = tx.objectStore('sqlScripts');
+      const versionStore = tx.objectStore('versions');
+      const tagStore = tx.objectStore('tags');
+      const commentStore = tx.objectStore('comments');
+      const metadataStore = this.db.db.objectStoreNames.contains('metadata') ? tx.objectStore('metadata') : null;
+
+      const trackError = (request, target, recordId, duplicateAsSkip = false) => {
+        request.onerror = (event) => {
+          const error = request.error;
+          if (duplicateAsSkip && error?.name === 'ConstraintError') {
+            event.preventDefault();
+            target.skipped++;
+            return;
+          }
+          target.errors.push({ ...recordId, error: error?.message || '未知錯誤' });
+        };
+      };
+
+      for (const op of batch.projectOps) {
+        const request = op.type === 'add' ? projectStore.add(op.record) : projectStore.put(op.record);
+        trackError(request, batch.results.projects, { projectId: op.record.projectId });
+      }
+      for (const op of batch.scriptOps) {
+        const request = op.type === 'add' ? scriptStore.add(op.record) : scriptStore.put(op.record);
+        trackError(request, batch.results.scripts, { scriptId: op.record.scriptId });
+      }
+      for (const op of batch.versionOps) {
+        const request = op.type === 'add' ? versionStore.add(op.record) : versionStore.put(op.record);
+        trackError(request, batch.results.versions, { versionId: op.record.versionId });
+      }
+      for (const tag of batch.tagOps) {
+        const request = tagStore.add(tag);
+        trackError(request, batch.results.tags, { tagId: tag.tagId }, true);
+        request.onsuccess = () => { batch.results.tags.imported++; };
+      }
+      for (const comment of batch.commentOps) {
+        const request = commentStore.add(comment);
+        trackError(request, batch.results.comments, { commentId: comment.commentId }, true);
+        request.onsuccess = () => { batch.results.comments.imported++; };
+      }
+      if (metadataStore) {
+        for (const meta of batch.metadataOps) {
+          const request = metadataStore.put(meta);
+          trackError(request, batch.results.metadata, { key: meta.key });
+          request.onsuccess = () => { batch.results.metadata.imported++; };
+        }
+      }
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('完整還原交易已中止'));
+    });
   }
 
   /**
