@@ -79,6 +79,8 @@ body {
 }
 
 body {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--bg-page);
   color: var(--text-primary);
@@ -100,14 +102,14 @@ select {
 }
 
 .navbar {
-  position: sticky;
-  top: 0;
+  position: relative;
+  flex: 0 0 auto;
   z-index: 100;
   display: grid;
-  grid-template-columns: minmax(380px, 1.35fr) minmax(380px, 1fr) minmax(360px, 1.1fr);
+  grid-template-columns: minmax(420px, 1.3fr) minmax(380px, 1fr) minmax(360px, 1.1fr);
   align-items: center;
   gap: 16px;
-  min-height: 68px;
+  min-height: 0;
   padding: 10px 16px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-light);
@@ -118,7 +120,9 @@ select {
 .navbar-center,
 .navbar-right,
 .center-actions,
+.scope-selectors,
 .project-selector,
+.script-selector,
 .logo-section {
   display: flex;
   align-items: center;
@@ -127,6 +131,7 @@ select {
 
 .navbar-left {
   gap: 20px;
+  align-items: flex-start;
 }
 
 .navbar-center {
@@ -142,6 +147,7 @@ select {
 .logo-section {
   flex: 0 0 auto;
   gap: 10px;
+  min-height: 34px;
 }
 
 .logo-image {
@@ -159,13 +165,23 @@ select {
   white-space: nowrap;
 }
 
-.project-selector {
+.scope-selectors {
   flex: 1 1 auto;
-  gap: 8px;
-  min-width: 220px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 280px;
 }
 
-.project-selector label {
+.project-selector,
+.script-selector {
+  flex: 1 1 auto;
+  gap: 8px;
+  min-width: 0;
+}
+
+.project-selector label,
+.script-selector label {
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 700;
@@ -390,10 +406,11 @@ select {
 }
 
 .container {
+  flex: 1 1 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   gap: 14px;
-  height: calc(100vh - 96px);
+  min-height: 0;
   padding: 14px;
   background: var(--bg-page);
 }
@@ -1114,8 +1131,8 @@ select {
 }
 
 .status-bar {
-  position: sticky;
-  bottom: 0;
+  position: relative;
+  flex: 0 0 auto;
   z-index: 50;
   display: flex;
   align-items: center;
@@ -1208,6 +1225,10 @@ select {
     justify-content: flex-start;
   }
 
+  .navbar-left {
+    align-items: stretch;
+  }
+
   .center-actions {
     width: 100%;
     justify-content: flex-start;
@@ -1239,7 +1260,7 @@ select {
   .container {
     grid-template-columns: 1fr;
     height: auto;
-    min-height: calc(100vh - 96px);
+    min-height: 0;
   }
 
   .editor-panel {
@@ -1263,12 +1284,15 @@ select {
   .navbar-left,
   .navbar-right,
   .center-actions,
-  .project-selector {
+  .project-selector,
+  .script-selector {
     flex-wrap: wrap;
   }
 
   .logo-section,
+  .scope-selectors,
   .project-selector,
+  .script-selector,
   .project-select {
     width: 100%;
   }

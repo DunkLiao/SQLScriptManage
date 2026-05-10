@@ -16,19 +16,36 @@
         <h1 class="app-title">SQL 版本控管工具</h1>
       </div>
 
-      <div class="project-selector">
-        <label for="projectSelector">專案</label>
-        <select id="projectSelector" class="project-select">
-          <!-- 選項動態插入 -->
-        </select>
-        <button class="btn btn-secondary btn-compact" id="btnNewProject" title="建立新專案">
-          <span class="icon">＋</span>
-          <span>新建</span>
-        </button>
-        <button class="btn btn-danger btn-compact" id="btnDeleteProject" title="刪除專案">
-          <span class="icon">×</span>
-          <span>刪除</span>
-        </button>
+      <div class="scope-selectors">
+        <div class="project-selector">
+          <label for="projectSelector">專案</label>
+          <select id="projectSelector" class="project-select">
+            <!-- 選項動態插入 -->
+          </select>
+          <button class="btn btn-secondary btn-compact" id="btnNewProject" title="建立新專案">
+            <span class="icon">＋</span>
+            <span>新建</span>
+          </button>
+          <button class="btn btn-danger btn-compact" id="btnDeleteProject" title="刪除專案">
+            <span class="icon">×</span>
+            <span>刪除</span>
+          </button>
+        </div>
+
+        <div class="script-selector">
+          <label for="scriptSelector">SQL</label>
+          <select id="scriptSelector" class="project-select">
+            <!-- 選項動態插入 -->
+          </select>
+          <button class="btn btn-secondary btn-compact" id="btnNewScript" title="建立新 SQL 腳本">
+            <span class="icon">＋</span>
+            <span>新建</span>
+          </button>
+          <button class="btn btn-danger btn-compact" id="btnDeleteScript" title="刪除 SQL 腳本">
+            <span class="icon">×</span>
+            <span>刪除</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -407,6 +424,7 @@
         <div id="backupStats" class="stats-grid-wrap">
           <div class="stats-grid">
             <div><strong>專案數：</strong><span id="statsProjects">計算中...</span></div>
+            <div><strong>SQL 腳本數：</strong><span id="statsScripts">計算中...</span></div>
             <div><strong>版本數：</strong><span id="statsVersions">計算中...</span></div>
             <div><strong>標籤數：</strong><span id="statsTags">計算中...</span></div>
             <div><strong>批註數：</strong><span id="statsComments">計算中...</span></div>
@@ -552,12 +570,13 @@
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.js"></script>
   
   <!-- 應用腳本 (確保依序加載) -->
-  <script src="js/modules/database.js"></script>
-  <script src="js/modules/diffEngine.js"></script>
-  <script src="js/modules/projectManager.js"></script>  <!-- v3 新增：專案管理器 -->
-  <script src="js/modules/versionManager.js"></script>
-  <script src="js/modules/importExport.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/modules/database.js?v=5"></script>
+  <script src="js/modules/diffEngine.js?v=5"></script>
+  <script src="js/modules/projectManager.js?v=5"></script>  <!-- v3 新增：專案管理器 -->
+  <script src="js/modules/scriptManager.js?v=5"></script>  <!-- v5 新增：SQL 腳本管理器 -->
+  <script src="js/modules/versionManager.js?v=5"></script>
+  <script src="js/modules/importExport.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
   
   <!-- 初始化檢查 -->
   <script>
@@ -568,6 +587,7 @@
       console.log('- db:', typeof db !== 'undefined' ? '✓' : '✗');
       console.log('- diffEngine:', typeof diffEngine !== 'undefined' ? '✓' : '✗');
       console.log('- projectManager:', typeof projectManager !== 'undefined' ? '✓' : '✗');
+      console.log('- scriptManager:', typeof scriptManager !== 'undefined' ? '✓' : '✗');
       console.log('- versionManager:', typeof versionManager !== 'undefined' ? '✓' : '✗');
       console.log('- importExportManager:', typeof importExportManager !== 'undefined' ? '✓' : '✗');
       

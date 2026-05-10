@@ -8,16 +8,18 @@ class ImportExportManager {
     this.versionManager = null;
     this.diffEngine = null;
     this.projectManager = null;
+    this.scriptManager = null;
   }
 
   /**
    * 初始化
    */
-  async init(dbManager, vmManager, diffEngineInstance, projectManagerInstance) {
+  async init(dbManager, vmManager, diffEngineInstance, projectManagerInstance, scriptManagerInstance = null) {
     this.db = dbManager;
     this.versionManager = vmManager;
     this.diffEngine = diffEngineInstance;
     this.projectManager = projectManagerInstance;
+    this.scriptManager = scriptManagerInstance;
   }
 
   /**
@@ -37,16 +39,19 @@ class ImportExportManager {
     // 獲取指定專案的所有版本
     const allVersions = await this.db.getVersionsByProject(targetProjectId);
     const sortedVersions = [...allVersions].sort((a, b) => a.timestamp - b.timestamp);
+    const scripts = await this.db.getScriptsByProject(targetProjectId);
 
     const jsonMetadata = {
-      formatVersion: '1.0',
+      formatVersion: '3.0',
       exportDate: new Date().toISOString(),
       databaseVersion: this.db.version,
+      totalScripts: scripts.length,
       totalVersions: sortedVersions.length,
       includeDelta: false,
       includeTags,
       includeComments,
       projectId: targetProjectId,  // v3 新增：記錄來源專案
+      scripts,
       versions: [],
       tags: [],
       comments: []
@@ -56,6 +61,7 @@ class ImportExportManager {
       const versionData = {
         versionId: version.versionId,
         parentVersionId: version.parentVersionId,
+        scriptId: version.scriptId,
         timestamp: version.timestamp,
         label: version.label,
         description: version.description,
@@ -112,6 +118,7 @@ class ImportExportManager {
 
     // 獲取所有資料
     const allProjects = await this._getAllProjects();
+    const allScripts = await this._getAllScripts();
     const allVersions = await this.db.getAllVersions();
     const allTags = includeTags ? await this._getAllTags() : [];
     const allComments = includeComments ? await this._getAllComments() : [];
@@ -121,11 +128,12 @@ class ImportExportManager {
     const sortedVersions = [...allVersions].sort((a, b) => a.timestamp - b.timestamp);
 
     const exportData = {
-      formatVersion: '2.0',
+      formatVersion: '3.0',
       exportType: 'full',
       exportDate: new Date().toISOString(),
       databaseVersion: this.db.version,
       totalProjects: allProjects.length,
+      totalScripts: allScripts.length,
       totalVersions: sortedVersions.length,
       totalTags: allTags.length,
       totalComments: allComments.length,
@@ -133,10 +141,12 @@ class ImportExportManager {
       includeComments,
       includeMetadata,
       projects: allProjects,
+      scripts: allScripts,
       versions: sortedVersions.map(version => ({
         versionId: version.versionId,
         parentVersionId: version.parentVersionId,
         projectId: version.projectId,
+        scriptId: version.scriptId,
         timestamp: version.timestamp,
         label: version.label,
         description: version.description,
@@ -157,6 +167,7 @@ class ImportExportManager {
     // 計算校驗和（使用完整資料結構）
     const dataString = JSON.stringify({
       projects: exportData.projects,
+      scripts: exportData.scripts,
       versions: exportData.versions,
       tags: exportData.tags,
       comments: exportData.comments
@@ -169,6 +180,7 @@ class ImportExportManager {
     
     console.log('✓ 完整資料庫匯出完成');
     console.log(`  - 專案數: ${allProjects.length}`);
+    console.log(`  - SQL 腳本數: ${allScripts.length}`);
     console.log(`  - 版本數: ${sortedVersions.length}`);
     console.log(`  - 標籤數: ${allTags.length}`);
     console.log(`  - 批註數: ${allComments.length}`);
@@ -233,13 +245,20 @@ class ImportExportManager {
       const project = await this._getProject(projectId);
       if (project) projects.push(project);
     }
+    const scriptIdSet = new Set(sortedVersions.map(v => v.scriptId).filter(Boolean));
+    const scripts = [];
+    for (const scriptId of scriptIdSet) {
+      const script = await this.db.getScript(scriptId);
+      if (script) scripts.push(script);
+    }
 
     const exportData = {
-      formatVersion: '2.0',
+      formatVersion: '3.0',
       exportType: 'selective',
       exportDate: new Date().toISOString(),
       databaseVersion: this.db.version,
       totalProjects: projects.length,
+      totalScripts: scripts.length,
       totalVersions: sortedVersions.length,
       includeTags,
       includeComments,
@@ -249,10 +268,12 @@ class ImportExportManager {
         dateRange: dateRange || null
       },
       projects: projects,
+      scripts: scripts,
       versions: sortedVersions.map(version => ({
         versionId: version.versionId,
         parentVersionId: version.parentVersionId,
         projectId: version.projectId,
+        scriptId: version.scriptId,
         timestamp: version.timestamp,
         label: version.label,
         description: version.description,
@@ -287,6 +308,7 @@ class ImportExportManager {
     // 計算校驗和
     const dataString = JSON.stringify({
       projects: exportData.projects,
+      scripts: exportData.scripts,
       versions: exportData.versions,
       tags: exportData.tags,
       comments: exportData.comments
@@ -440,7 +462,10 @@ class ImportExportManager {
     }
 
     const importVersions = jsonData.versions;
+    const preparedScripts = await this._prepareImportScripts(jsonData, targetProjectId);
+    const scriptIdMap = preparedScripts.map;
     const results = {
+      scripts: preparedScripts.created,
       imported: 0,
       skipped: 0,
       overwritten: 0,
@@ -459,6 +484,7 @@ class ImportExportManager {
 
         // v3 新增：設定目標專案 ID
         versionRecord.projectId = targetProjectId;
+        versionRecord.scriptId = scriptIdMap.get(importVersion.scriptId) || scriptIdMap.get('__default');
 
         if (localExists && resolution !== 'skip') {
           if (resolution === 'overwrite') {
@@ -537,18 +563,27 @@ class ImportExportManager {
     console.log(`  - 清空現有資料: ${clearExisting}`);
 
     // 驗證格式
-    if (jsonData.formatVersion !== '2.0' || jsonData.exportType !== 'full') {
-      throw new Error('不是有效的完整備份檔案（需要 formatVersion 2.0 且 exportType 為 full）');
+    if (!['2.0', '3.0'].includes(jsonData.formatVersion) || jsonData.exportType !== 'full') {
+      throw new Error('不是有效的完整備份檔案（需要 formatVersion 2.0/3.0 且 exportType 為 full）');
     }
 
     // 驗證校驗和
     if (jsonData.checksum) {
-      const dataString = JSON.stringify({
-        projects: jsonData.projects,
-        versions: jsonData.versions,
-        tags: jsonData.tags,
-        comments: jsonData.comments
-      });
+      const checksumSource = jsonData.formatVersion === '3.0'
+        ? {
+          projects: jsonData.projects,
+          scripts: jsonData.scripts || [],
+          versions: jsonData.versions,
+          tags: jsonData.tags,
+          comments: jsonData.comments
+        }
+        : {
+          projects: jsonData.projects,
+          versions: jsonData.versions,
+          tags: jsonData.tags,
+          comments: jsonData.comments
+        };
+      const dataString = JSON.stringify(checksumSource);
       const actualChecksum = await this.diffEngine.computeHash(dataString);
       if (actualChecksum !== jsonData.checksum) {
         throw new Error('檔案校驗失敗，資料可能已損壞');
@@ -558,6 +593,7 @@ class ImportExportManager {
 
     const results = {
       projects: { imported: 0, skipped: 0, overwritten: 0, errors: [] },
+      scripts: { imported: 0, skipped: 0, overwritten: 0, errors: [] },
       versions: { imported: 0, skipped: 0, overwritten: 0, merged: 0, errors: [] },
       tags: { imported: 0, skipped: 0, errors: [] },
       comments: { imported: 0, skipped: 0, errors: [] },
@@ -601,12 +637,56 @@ class ImportExportManager {
       }
 
       // 步驟 3: 匯入版本
+      if (jsonData.scripts && Array.isArray(jsonData.scripts)) {
+        console.log(`匯入 ${jsonData.scripts.length} 支 SQL 腳本...`);
+        for (const script of jsonData.scripts) {
+          try {
+            const existingScript = await this.db.getScript(script.scriptId);
+            const sameNameScript = (await this.db.getScriptsByProject(script.projectId))
+              .find(item => item.scriptName === script.scriptName);
+            if (existingScript) {
+              if (conflictStrategy === 'overwrite') {
+                await this._saveScript(script);
+                results.scripts.overwritten++;
+              } else {
+                results.scripts.skipped++;
+              }
+            } else if (sameNameScript) {
+              if (conflictStrategy === 'overwrite') {
+                await this._saveScript({ ...script, scriptId: sameNameScript.scriptId });
+                results.scripts.overwritten++;
+              } else {
+                results.scripts.skipped++;
+              }
+            } else {
+              await this.db.saveScript(script);
+              results.scripts.imported++;
+            }
+          } catch (error) {
+            results.scripts.errors.push({
+              scriptId: script.scriptId,
+              error: error.message
+            });
+          }
+        }
+        console.log(`✓ SQL 腳本匯入完成 (新增: ${results.scripts.imported}, 覆蓋: ${results.scripts.overwritten}, 跳過: ${results.scripts.skipped})`);
+      } else if (jsonData.projects && Array.isArray(jsonData.projects)) {
+        for (const project of jsonData.projects) {
+          await this._ensureDefaultScript(project.projectId);
+        }
+      }
+
+      // 步驟 3: 匯入版本
       if (jsonData.versions && Array.isArray(jsonData.versions)) {
         console.log(`匯入 ${jsonData.versions.length} 個版本...`);
         
         for (const importVersion of jsonData.versions) {
           try {
             const versionRecord = await this._normalizeImportedVersionRecord(importVersion);
+            if (!versionRecord.scriptId) {
+              const defaultScript = await this._ensureDefaultScript(versionRecord.projectId);
+              versionRecord.scriptId = defaultScript.scriptId;
+            }
             const existingVersion = await this.db.getVersion(versionRecord.versionId);
 
             if (existingVersion) {
@@ -768,6 +848,61 @@ class ImportExportManager {
     });
   }
 
+  async _prepareImportScripts(jsonData, targetProjectId) {
+    const scriptIdMap = new Map();
+    let created = 0;
+
+    if (jsonData.scripts && Array.isArray(jsonData.scripts) && jsonData.scripts.length > 0) {
+      for (const script of jsonData.scripts) {
+        const importedScript = { ...script };
+        const originalScriptId = importedScript.scriptId;
+        importedScript.projectId = targetProjectId;
+
+        const projectScripts = await this.db.getScriptsByProject(targetProjectId);
+        let targetScript = projectScripts.find(item => item.scriptName === importedScript.scriptName);
+
+        if (!targetScript) {
+          importedScript.scriptId = `script_${targetProjectId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+          importedScript.createdAt = importedScript.createdAt || Date.now();
+          importedScript.updatedAt = Date.now();
+          importedScript.rootVersionId = null;
+          await this.db.saveScript(importedScript);
+          targetScript = importedScript;
+          created++;
+        }
+
+        scriptIdMap.set(originalScriptId, targetScript.scriptId);
+      }
+    }
+
+    if (!scriptIdMap.has('__default')) {
+      const defaultScript = await this._ensureDefaultScript(targetProjectId);
+      scriptIdMap.set('__default', defaultScript.scriptId);
+    }
+
+    return { map: scriptIdMap, created };
+  }
+
+  async _ensureDefaultScript(projectId) {
+    const scripts = await this.db.getScriptsByProject(projectId);
+    const existing = scripts.find(script => script.scriptName === 'main' || script.scriptName === 'main.sql') || scripts[0];
+    if (existing) return existing;
+
+    const project = await this.db.getProject(projectId);
+    const now = Date.now();
+    const script = {
+      scriptId: `script_${projectId}_${now}_${Math.random().toString(36).substr(2, 6)}`,
+      projectId,
+      scriptName: 'main',
+      description: '',
+      rootVersionId: project?.rootVersionId || null,
+      createdAt: project?.createdAt || now,
+      updatedAt: now
+    };
+    await this.db.saveScript(script);
+    return script;
+  }
+
   /**
    * 輔助方法：獲取所有專案
    */
@@ -775,6 +910,20 @@ class ImportExportManager {
     return new Promise((resolve, reject) => {
       const tx = this.db.db.transaction('projects', 'readonly');
       const store = tx.objectStore('projects');
+      const request = store.getAll();
+
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 輔助方法：獲取所有 SQL 腳本
+   */
+  async _getAllScripts() {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.db.transaction('sqlScripts', 'readonly');
+      const store = tx.objectStore('sqlScripts');
       const request = store.getAll();
 
       request.onsuccess = () => resolve(request.result || []);
@@ -857,6 +1006,20 @@ class ImportExportManager {
   }
 
   /**
+   * 輔助方法：儲存 SQL 腳本
+   */
+  async _saveScript(script) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.db.transaction('sqlScripts', 'readwrite');
+      const store = tx.objectStore('sqlScripts');
+      const request = store.put(script);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
    * 輔助方法：儲存元數據
    */
   async _saveMetadata(metadata) {
@@ -878,7 +1041,7 @@ class ImportExportManager {
    * 輔助方法：清空所有資料
    */
   async _clearAllData() {
-    const stores = ['projects', 'versions', 'tags', 'comments', 'metadata'];
+    const stores = ['projects', 'sqlScripts', 'versions', 'tags', 'comments', 'metadata'];
     
     for (const storeName of stores) {
       if (this.db.db.objectStoreNames.contains(storeName)) {

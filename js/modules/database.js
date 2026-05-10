@@ -3,7 +3,7 @@
  */
 
 class DatabaseManager {
-  constructor(dbName = 'SQLVersionControl', version = 4) {
+  constructor(dbName = 'SQLVersionControl', version = 5) {
     this.dbName = dbName;
     this.version = version;
     this.db = null;
@@ -52,6 +52,13 @@ class DatabaseManager {
               console.warn('v4 數據遷移失敗:', err);
             });
           }
+
+          // 執行數據遷移（v4 → v5）
+          if (dbVersion >= 5) {
+            await this.migrateToV5().catch(err => {
+              console.warn('v5 數據遷移失敗:', err);
+            });
+          }
           
           resolve(this.db);
         };
@@ -74,6 +81,17 @@ class DatabaseManager {
             console.log('✓ 專案 ObjectStore 創建成功');
           }
 
+          // 0.5 建立 sqlScripts ObjectStore（v5 新增）
+          if (!db.objectStoreNames.contains('sqlScripts')) {
+            const scriptStore = db.createObjectStore('sqlScripts',
+              { keyPath: 'scriptId' }
+            );
+            scriptStore.createIndex('projectId', 'projectId');
+            scriptStore.createIndex('projectId_scriptName', ['projectId', 'scriptName'], { unique: true });
+            scriptStore.createIndex('updatedAt', 'updatedAt');
+            console.log('✓ SQL 腳本 ObjectStore 創建成功');
+          }
+
           // 1. 創建或升級 versions ObjectStore
           if (!db.objectStoreNames.contains('versions')) {
             const versionStore = db.createObjectStore('versions', 
@@ -85,6 +103,8 @@ class DatabaseManager {
             // v3：添加 projectId 複合索引
             versionStore.createIndex('projectId_timestamp', ['projectId', 'timestamp']);
             versionStore.createIndex('projectId', 'projectId');
+            versionStore.createIndex('scriptId', 'scriptId');
+            versionStore.createIndex('projectId_scriptId_timestamp', ['projectId', 'scriptId', 'timestamp']);
             // 移除唯一約束，允許標籤重複
             versionStore.createIndex('label', 'label', { unique: false });
             console.log('✓ 版本 ObjectStore 創建成功');
@@ -103,6 +123,19 @@ class DatabaseManager {
               console.log('✓ projectId 索引已新增');
             } catch (e) {
               console.warn('projectId 索引已存在:', e.message);
+            }
+          }
+
+          if (db.objectStoreNames.contains('versions') && oldVersion < 5) {
+            const tx = event.target.transaction;
+            const versionStore = tx.objectStore('versions');
+            if (!versionStore.indexNames.contains('scriptId')) {
+              versionStore.createIndex('scriptId', 'scriptId');
+              console.log('✓ scriptId 索引已新增');
+            }
+            if (!versionStore.indexNames.contains('projectId_scriptId_timestamp')) {
+              versionStore.createIndex('projectId_scriptId_timestamp', ['projectId', 'scriptId', 'timestamp']);
+              console.log('✓ projectId_scriptId_timestamp 索引已新增');
             }
           }
 
@@ -426,11 +459,12 @@ class DatabaseManager {
 
     await new Promise((resolve, reject) => {
       const tx = this.db.transaction(
-        ['projects', 'versions', 'tags', 'comments', 'metadata'],
+        ['projects', 'sqlScripts', 'versions', 'tags', 'comments', 'metadata'],
         'readwrite'
       );
 
       tx.objectStore('projects').clear();
+      tx.objectStore('sqlScripts').clear();
       tx.objectStore('versions').clear();
       tx.objectStore('tags').clear();
       tx.objectStore('comments').clear();
@@ -448,9 +482,20 @@ class DatabaseManager {
       createdAt: now,
       updatedAt: now
     };
+    const defaultScript = {
+      scriptId: `script_default_${now}`,
+      projectId: defaultProject.projectId,
+      scriptName: 'main',
+      description: '',
+      rootVersionId: null,
+      createdAt: now,
+      updatedAt: now
+    };
 
     await this.saveProject(defaultProject);
+    await this.saveScript(defaultScript);
     await this.saveMetadata('currentProjectId', defaultProject.projectId);
+    await this.saveMetadata(`currentScriptId:${defaultProject.projectId}`, defaultScript.scriptId);
 
     return defaultProject;
   }
@@ -585,10 +630,21 @@ class DatabaseManager {
     if (!this.db) throw new Error('數據庫未初始化');
 
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(['projects', 'versions', 'tags', 'comments'], 'readwrite');
+      const tx = this.db.transaction(['projects', 'sqlScripts', 'versions', 'tags', 'comments'], 'readwrite');
       
       // 刪除專案
       tx.objectStore('projects').delete(projectId);
+
+      // 刪除該專案的 SQL 腳本
+      const scriptStore = tx.objectStore('sqlScripts');
+      const scriptIndex = scriptStore.index('projectId');
+      scriptIndex.openCursor(IDBKeyRange.only(projectId)).onsuccess = (scriptEvent) => {
+        const scriptCursor = scriptEvent.target.result;
+        if (scriptCursor) {
+          scriptCursor.delete();
+          scriptCursor.continue();
+        }
+      };
 
       // 刪除該專案的所有版本及其相關的標籤和批註
       const versionStore = tx.objectStore('versions');
@@ -631,6 +687,124 @@ class DatabaseManager {
     });
   }
 
+  // ========== SQL 腳本管理相關方法 (v5 新增) ==========
+
+  async saveScript(scriptRecord) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('sqlScripts', 'readwrite');
+      const request = tx.objectStore('sqlScripts').add(scriptRecord);
+
+      request.onsuccess = () => resolve(scriptRecord);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async putScript(scriptRecord) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('sqlScripts', 'readwrite');
+      const request = tx.objectStore('sqlScripts').put(scriptRecord);
+
+      request.onsuccess = () => resolve(scriptRecord);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getScript(scriptId) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('sqlScripts', 'readonly');
+      const request = tx.objectStore('sqlScripts').get(scriptId);
+
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getScriptsByProject(projectId) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('sqlScripts', 'readonly');
+      const index = tx.objectStore('sqlScripts').index('projectId');
+      const request = index.getAll(projectId);
+
+      request.onsuccess = () => {
+        const scripts = request.result || [];
+        scripts.sort((a, b) => a.createdAt - b.createdAt);
+        resolve(scripts);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAllScripts() {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('sqlScripts', 'readonly');
+      const request = tx.objectStore('sqlScripts').getAll();
+
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async updateScript(scriptId, updates) {
+    const script = await this.getScript(scriptId);
+    if (!script) throw new Error('SQL 腳本不存在');
+
+    Object.assign(script, updates, { updatedAt: Date.now() });
+    return await this.putScript(script);
+  }
+
+  async deleteScript(scriptId) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(['sqlScripts', 'versions', 'tags', 'comments'], 'readwrite');
+
+      tx.objectStore('sqlScripts').delete(scriptId);
+
+      const versionStore = tx.objectStore('versions');
+      const scriptIndex = versionStore.index('scriptId');
+      scriptIndex.openCursor(IDBKeyRange.only(scriptId)).onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          const versionId = cursor.value.versionId;
+          cursor.delete();
+
+          const tagIndex = tx.objectStore('tags').index('versionId');
+          tagIndex.openCursor(IDBKeyRange.only(versionId)).onsuccess = (tagEvent) => {
+            const tagCursor = tagEvent.target.result;
+            if (tagCursor) {
+              tagCursor.delete();
+              tagCursor.continue();
+            }
+          };
+
+          const commentIndex = tx.objectStore('comments').index('versionId');
+          commentIndex.openCursor(IDBKeyRange.only(versionId)).onsuccess = (commentEvent) => {
+            const commentCursor = commentEvent.target.result;
+            if (commentCursor) {
+              commentCursor.delete();
+              commentCursor.continue();
+            }
+          };
+
+          cursor.continue();
+        }
+      };
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
   /**
    * 獲取指定專案的所有版本
    */
@@ -650,6 +824,35 @@ class DatabaseManager {
       };
       request.onerror = () => reject(request.error);
     });
+  }
+
+  /**
+   * 獲取指定 SQL 腳本的所有版本
+   */
+  async getVersionsByScript(scriptId) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('versions', 'readonly');
+      const store = tx.objectStore('versions');
+      const index = store.index('scriptId');
+      const request = index.getAll(scriptId);
+
+      request.onsuccess = () => {
+        const versions = request.result;
+        versions.sort((a, b) => b.timestamp - a.timestamp);
+        resolve(versions);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 獲取指定 SQL 腳本的最新版本
+   */
+  async getLatestVersionByScript(scriptId) {
+    const versions = await this.getVersionsByScript(scriptId);
+    return versions.length > 0 ? versions[0] : null;
   }
 
   /**
@@ -809,6 +1012,87 @@ class DatabaseManager {
 
     await this.saveMetadata('migration_v4_fullContentOnly', true);
     console.log(`✓ v4 數據遷移完成，更新 ${updatedCount} 個版本`);
+  }
+
+  /**
+   * 數據遷移：v4 → v5（添加專案內多 SQL 腳本支持）
+   */
+  async migrateToV5() {
+    const migrated = await this.getMetadata('migration_v5_sqlScripts');
+    const allVersions = await this.getAllVersions();
+    const versionsNeedScriptId = allVersions.some(version => !version.scriptId);
+    const existingScripts = await this.getAllScripts();
+
+    if (migrated?.value === true && existingScripts.length > 0 && !versionsNeedScriptId) {
+      console.log('✓ v5 數據遷移已完成，無需重複執行');
+      return;
+    }
+
+    console.log('開始執行 v4 → v5 數據遷移...');
+    const projects = await this.getAllProjects();
+    let scriptCount = 0;
+    let updatedVersionCount = 0;
+
+    for (const project of projects) {
+      let scripts = await this.getScriptsByProject(project.projectId);
+      let defaultScript = scripts.find(script => script.scriptName === 'main' || script.scriptName === 'main.sql') || scripts[0];
+
+      if (!defaultScript) {
+        const projectVersions = allVersions
+          .filter(version => version.projectId === project.projectId)
+          .sort((a, b) => a.timestamp - b.timestamp);
+        const now = Date.now();
+        defaultScript = {
+          scriptId: `script_${project.projectId}_${now}_${Math.random().toString(36).substr(2, 6)}`,
+          projectId: project.projectId,
+          scriptName: 'main',
+          description: '',
+          rootVersionId: project.rootVersionId || projectVersions[0]?.versionId || null,
+          createdAt: project.createdAt || projectVersions[0]?.timestamp || now,
+          updatedAt: now
+        };
+        await this.saveScript(defaultScript);
+        await this.saveMetadata(`currentScriptId:${project.projectId}`, defaultScript.scriptId);
+        scriptCount++;
+      }
+
+      for (const version of allVersions) {
+        if (version.projectId === project.projectId && !version.scriptId) {
+          version.scriptId = defaultScript.scriptId;
+          version.updatedAt = Date.now();
+          await this._putVersion(version);
+          updatedVersionCount++;
+        }
+      }
+    }
+
+    if (projects.length === 0) {
+      const now = Date.now();
+      const defaultProject = {
+        projectId: 'default',
+        projectName: '預設',
+        rootVersionId: null,
+        createdAt: now,
+        updatedAt: now
+      };
+      await this.saveProject(defaultProject);
+      const defaultScript = {
+        scriptId: `script_default_${now}`,
+        projectId: defaultProject.projectId,
+        scriptName: 'main',
+        description: '',
+        rootVersionId: null,
+        createdAt: now,
+        updatedAt: now
+      };
+      await this.saveScript(defaultScript);
+      await this.saveMetadata('currentProjectId', defaultProject.projectId);
+      await this.saveMetadata(`currentScriptId:${defaultProject.projectId}`, defaultScript.scriptId);
+      scriptCount++;
+    }
+
+    await this.saveMetadata('migration_v5_sqlScripts', true);
+    console.log(`✓ v5 數據遷移完成，建立 ${scriptCount} 支 SQL 腳本，更新 ${updatedVersionCount} 個版本`);
   }
 
   _applyLineDiffs(lineDiffs) {

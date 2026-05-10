@@ -7,15 +7,17 @@ class VersionManager {
     this.db = null;
     this.diffEngine = null;
     this.projectManager = null;
+    this.scriptManager = null;
   }
 
   /**
    * 初始化版本管理器
    */
-  async init(dbManager, diffEngineInstance, projectManagerInstance) {
+  async init(dbManager, diffEngineInstance, projectManagerInstance = null, scriptManagerInstance = null) {
     this.db = dbManager;
     this.diffEngine = diffEngineInstance;
     this.projectManager = projectManagerInstance;
+    this.scriptManager = scriptManagerInstance;
   }
 
   /**
@@ -42,9 +44,13 @@ class VersionManager {
     if (!projectId) {
       throw new Error('未指定專案');
     }
+    const scriptId = this.scriptManager?.getCurrentScriptId();
+    if (!scriptId) {
+      throw new Error('未指定 SQL 腳本');
+    }
 
-    // 1. 獲取該專案的最新版本內容（已規範化）
-    const latestVersion = await this.db.getLatestVersionByProject(projectId);
+    // 1. 獲取該 SQL 腳本的最新版本內容（已規範化）
+    const latestVersion = await this.db.getLatestVersionByScript(scriptId);
     const latestContent = latestVersion 
       ? await this.getVersionContent(latestVersion.versionId)
       : '';
@@ -71,6 +77,7 @@ class VersionManager {
     const versionRecord = {
       versionId,
       projectId,  // v3 新增：專案隔離
+      scriptId,   // v5 新增：SQL 腳本隔離
       parentVersionId: latestVersion?.versionId || null,
       timestamp: Date.now(),
       label,
@@ -89,10 +96,10 @@ class VersionManager {
     // 8. 保存到 IndexedDB
     const savedVersion = await this.db.saveVersion(versionRecord);
 
-    // 9. 如果這是該專案的第一個版本，設定根版本 ID
+    // 9. 如果這是該 SQL 腳本的第一個版本，設定根版本 ID
     if (versionDepth === 1) {
-      await this.projectManager.setRootVersionId(projectId, versionId);
-      console.log(`✓ 為專案「${projectId}」設定根版本: ${versionId}`);
+      await this.scriptManager.setRootVersionId(scriptId, versionId);
+      console.log(`✓ 為 SQL 腳本「${scriptId}」設定根版本: ${versionId}`);
     }
 
     // 10. 更新元數據
@@ -124,6 +131,10 @@ class VersionManager {
     throw new Error(`版本 ${versionId} 無有效內容`);
   }
 
+  async getVersion(versionId) {
+    return await this.db.getVersion(versionId);
+  }
+
   /**
    * 獲取版本鏈（從指定版本回溯到根）
    */
@@ -135,11 +146,13 @@ class VersionManager {
    * 獲取所有版本（當前專案）
    */
   async getAllVersions(projectId = null) {
-    // 如果未指定 projectId，使用當前專案
-    if (!projectId) {
-      projectId = this.projectManager.getCurrentProjectId();
+    if (projectId) {
+      return await this.db.getVersionsByProject(projectId);
     }
-    return await this.db.getVersionsByProject(projectId);
+
+    const scriptId = this.scriptManager?.getCurrentScriptId();
+    if (!scriptId) return [];
+    return await this.db.getVersionsByScript(scriptId);
   }
 
   /**
@@ -158,23 +171,32 @@ class VersionManager {
   /**
    * 刪除所有版本（當前專案）
    */
-  async deleteAllVersions(projectId = null) {
+  async deleteAllVersions(projectId = null, scriptId = null) {
     try {
-      // 如果未指定 projectId，使用當前專案
-      if (!projectId) {
-        projectId = this.projectManager.getCurrentProjectId();
+      if (!scriptId) {
+        scriptId = this.scriptManager?.getCurrentScriptId();
       }
+      if (!scriptId && projectId) {
+        const projectVersions = await this.db.getVersionsByProject(projectId);
+        for (const version of projectVersions) {
+          await this.db.deleteVersion(version.versionId);
+        }
+        await this.projectManager.setRootVersionId(projectId, null);
+        console.log('✓ 專案所有版本已刪除');
+        return;
+      }
+      if (!scriptId) throw new Error('未指定 SQL 腳本');
 
-      // 獲取該專案的所有版本
-      const versions = await this.db.getVersionsByProject(projectId);
+      // 獲取該 SQL 腳本的所有版本
+      const versions = await this.db.getVersionsByScript(scriptId);
       
       // 依次刪除每個版本
       for (const version of versions) {
         await this.db.deleteVersion(version.versionId);
       }
 
-      // 重置該專案的根版本 ID
-      await this.projectManager.setRootVersionId(projectId, null);
+      // 重置該 SQL 腳本的根版本 ID
+      await this.scriptManager.setRootVersionId(scriptId, null);
       
       console.log('✓ 所有版本已刪除');
     } catch (error) {
@@ -291,13 +313,13 @@ class VersionManager {
    * 壓縮版本鏈（定期維護，當前專案）
    * 將線性鏈上的多個小版本合併為單一快照
    */
-  async compactLinearChain(maxDepth = 100, projectId = null) {
-    // 如果未指定 projectId，使用當前專案
-    if (!projectId) {
-      projectId = this.projectManager.getCurrentProjectId();
+  async compactLinearChain(maxDepth = 100, projectId = null, scriptId = null) {
+    if (!scriptId) {
+      scriptId = this.scriptManager?.getCurrentScriptId();
     }
-
-    const allVersions = await this.db.getVersionsByProject(projectId);
+    const allVersions = scriptId
+      ? await this.db.getVersionsByScript(scriptId)
+      : await this.db.getVersionsByProject(projectId || this.projectManager.getCurrentProjectId());
 
     if (allVersions.length <= maxDepth) {
       console.log('版本鏈無需整合');
@@ -337,11 +359,13 @@ class VersionManager {
    * 搜尋版本（按 SQL 描述）
    */
   async searchVersions(keyword) {
-    const allVersions = await this.db.getAllVersions();
+    const allVersions = await this.getAllVersions();
     const lowerKeyword = keyword.toLowerCase();
 
     return allVersions.filter(v =>
-      (v.description || '').toLowerCase().includes(lowerKeyword)
+      (v.description || '').toLowerCase().includes(lowerKeyword) ||
+      (v.label || '').toLowerCase().includes(lowerKeyword) ||
+      (v.author || '').toLowerCase().includes(lowerKeyword)
     );
   }
 
