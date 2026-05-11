@@ -11,7 +11,11 @@ class ImportExportDialogs {
     this.renderImpactSummary = options.renderImpactSummary;
     this.confirmDangerAction = options.confirmDangerAction;
     this.onDataChanged = options.onDataChanged || (async () => {});
-    this.onError = options.onError || ((message) => alert(message));
+    this.onError = options.onError || ((message) => {
+      if (typeof dialogs !== 'undefined') {
+        dialogs.showAlert({ title: '操作失敗', message, kind: 'danger' });
+      }
+    });
 
     this.pendingImportData = null;
     this.pendingRestoreData = null;
@@ -134,7 +138,7 @@ class ImportExportDialogs {
       });
 
       this.importExportManager.downloadFile(jsonContent, `${filename}.json`, 'application/json');
-      alert('導出成功！(JSON)');
+      dialogs.showToast('導出成功！(JSON)', { kind: 'success' });
       document.getElementById('exportModal').style.display = 'none';
     } catch (error) {
       this.onError('導出失敗：' + error.message);
@@ -411,7 +415,7 @@ class ImportExportDialogs {
         message += `\n錯誤：${results.errors.length} 個版本`;
       }
 
-      alert(message);
+      await dialogs.showAlert({ title: '導入完成', message });
       document.getElementById('conflictModal').style.display = 'none';
       await this.onDataChanged({ reloadProjects: false });
     } catch (error) {
@@ -458,7 +462,7 @@ class ImportExportDialogs {
       this.importExportManager.downloadFile(jsonContent, filename, 'application/json');
 
       console.log('✓ 完整備份完成');
-      alert('完整資料庫備份成功！');
+      dialogs.showToast('完整資料庫備份成功！', { kind: 'success' });
       document.getElementById('fullBackupModal').style.display = 'none';
     } catch (error) {
       console.error('完整備份失敗:', error);
@@ -611,7 +615,10 @@ class ImportExportDialogs {
         clearExisting
       });
 
-      alert(this.formatFullRestoreResult(results));
+      await dialogs.showAlert({
+        title: '完整還原完成',
+        message: this.formatFullRestoreResult(results)
+      });
       document.getElementById('fullRestoreModal').style.display = 'none';
       this.pendingRestoreData = null;
       await this.onDataChanged({ reloadProjects: true });

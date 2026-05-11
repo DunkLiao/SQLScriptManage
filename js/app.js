@@ -14,6 +14,8 @@ class SQLVersionApp {
     this.importExportDialogs = null;
     this.currentVersion = null;
     this.selectedVersionId = null;
+    this.cleanEditorContent = '';
+    this.hasUnsavedChanges = false;
   }
 
   get monacoEditor() {
@@ -102,6 +104,7 @@ class SQLVersionApp {
       // 初始化 Monaco Editor
       console.log('正在初始化 Monaco Editor...');
       await this.editorController.init();
+      this.markEditorClean('');
       console.log('✓ Monaco Editor 初始化完成');
 
       // 加載並應用主題
@@ -125,7 +128,10 @@ class SQLVersionApp {
       console.error('❌ 應用初始化失敗:', error);
       console.error('錯誤堆棧:', error.stack);
       this.showInitializationStatus('error', error.message);
-      alert('應用初始化失敗：' + error.message + '\n\n請嘗試刷新頁面或清除瀏覽器快取。');
+      await this.showAlert('應用初始化失敗：' + error.message + '\n\n請嘗試刷新頁面或清除瀏覽器快取。', {
+        title: '初始化失敗',
+        kind: 'danger'
+      });
     }
   }
 
@@ -137,10 +143,10 @@ class SQLVersionApp {
     if (statusElement) {
       statusElement.classList.remove('status-pending', 'status-success', 'status-error');
       if (status === 'success') {
-        statusElement.innerHTML = '✅ 應用已就緒';
+        statusElement.textContent = '✅ 應用已就緒';
         statusElement.classList.add('status-success');
       } else {
-        statusElement.innerHTML = '❌ 初始化失敗：' + errorMessage;
+        statusElement.textContent = '❌ 初始化失敗：' + errorMessage;
         statusElement.classList.add('status-error');
       }
     }
@@ -159,7 +165,7 @@ class SQLVersionApp {
       formatScriptDisplayName: (scriptName) => this.formatScriptDisplayName(scriptName),
       onSelectVersion: (versionId) => this.selectVersion(versionId),
       onCompareVersion: (versionId) => this.editorController.compareWithCurrent(versionId),
-      onError: (message) => alert(message)
+      onError: (message) => this.showAlert(message, { title: '操作失敗', kind: 'danger' })
     });
     this.versionTreeController.bindEvents();
   }
@@ -171,7 +177,8 @@ class SQLVersionApp {
       scriptManager: this.scriptManager,
       importExportManager: this.importExportManager,
       onSaveVersion: () => this.showSaveVersionDialog(),
-      onError: (message) => alert(message)
+      onError: (message) => this.showAlert(message, { title: '提示' }),
+      onContentChanged: (content) => this.handleEditorContentChanged(content)
     });
     this.editorController.bindEvents();
   }
@@ -187,7 +194,7 @@ class SQLVersionApp {
       },
       confirmDangerAction: (options) => this.confirmDangerAction(options),
       onDataChanged: (options) => this.reloadAfterDataImport(options),
-      onError: (message) => alert(message)
+      onError: (message) => this.showAlert(message, { title: '操作失敗', kind: 'danger' })
     });
     this.importExportDialogs.bindEvents();
   }
@@ -211,6 +218,50 @@ class SQLVersionApp {
       this.importExportDialogs.scriptManager = this.scriptManager;
       this.importExportDialogs.importExportManager = this.importExportManager;
     }
+  }
+
+  showAlert(message, options = {}) {
+    return dialogs.showAlert({
+      title: options.title || '提示',
+      message,
+      kind: options.kind || 'info',
+      buttonText: options.buttonText || '確定'
+    });
+  }
+
+  showToast(message, options = {}) {
+    dialogs.showToast(message, options);
+  }
+
+  handleEditorContentChanged(content) {
+    this.hasUnsavedChanges = content !== this.cleanEditorContent;
+  }
+
+  markEditorClean(content = null) {
+    this.cleanEditorContent = content === null
+      ? (this.monacoEditor ? this.monacoEditor.getValue() : '')
+      : content;
+    this.hasUnsavedChanges = false;
+  }
+
+  async confirmDiscardUnsavedChanges(actionText) {
+    if (!this.hasUnsavedChanges) return true;
+    return dialogs.showConfirm({
+      title: '未儲存的 SQL 變更',
+      message: `目前編輯器有尚未保存成版本的 SQL 內容。確定要${actionText}並放棄這些變更嗎？`,
+      confirmText: '放棄變更',
+      cancelText: '繼續編輯',
+      kind: 'warning'
+    });
+  }
+
+  renderDetailPlaceholder() {
+    const detailContent = document.getElementById('detailContent');
+    if (!detailContent) return;
+    const placeholder = document.createElement('p');
+    placeholder.className = 'placeholder-text';
+    placeholder.textContent = '選擇一個版本查看詳情';
+    detailContent.replaceChildren(placeholder);
   }
 
   /**
@@ -368,7 +419,7 @@ class SQLVersionApp {
     console.log('用戶觸發重新初始化...');
     const initStatus = document.getElementById('initStatus');
     if (initStatus) {
-      initStatus.innerHTML = '⏳ 正在重新初始化...';
+      initStatus.textContent = '⏳ 正在重新初始化...';
       initStatus.classList.remove('status-success', 'status-error');
       initStatus.classList.add('status-pending');
     }
@@ -402,10 +453,11 @@ class SQLVersionApp {
       await this.updateProjectSelector();
       await this.updateScriptSelector();
       await this.loadVersionTree();
+      this.markEditorClean(this.monacoEditor ? this.monacoEditor.getValue() : '');
       
       console.log('✅ 重新初始化完成！');
       if (initStatus) {
-        initStatus.innerHTML = '✅ 應用已就緒';
+        initStatus.textContent = '✅ 應用已就緒';
         initStatus.classList.remove('status-pending', 'status-error');
         initStatus.classList.add('status-success');
       }
@@ -475,7 +527,7 @@ class SQLVersionApp {
     if (btnCloseDiff) {
       btnCloseDiff.addEventListener('click', () => {
         document.getElementById('diffPanel').style.display = 'none';
-        document.getElementById('diffContent').innerHTML = '';
+        document.getElementById('diffContent').replaceChildren();
       });
     }
 
@@ -530,6 +582,7 @@ class SQLVersionApp {
     await this.updateProjectSelector();
     await this.updateScriptSelector();
     await this.loadVersionTree();
+    this.markEditorClean(this.monacoEditor ? this.monacoEditor.getValue() : '');
     await this.updateStorageUsageStatus();
   }
 
@@ -537,6 +590,16 @@ class SQLVersionApp {
    * 選擇版本
    */
   async selectVersion(versionId) {
+    if (versionId === this.selectedVersionId) return;
+
+    const canSelect = await this.confirmDiscardUnsavedChanges('載入其他版本');
+    if (!canSelect) {
+      if (this.versionTreeController) {
+        this.versionTreeController.setSelectedVersion(this.selectedVersionId);
+      }
+      return;
+    }
+
     if (this.versionTreeController) {
       this.versionTreeController.setSelectedVersion(versionId);
     }
@@ -561,25 +624,42 @@ class SQLVersionApp {
     if (this.monacoEditor) {
       this.monacoEditor.setValue(content);
       this.updateEditorStats();
+      this.markEditorClean(content);
     }
 
     // 加載版本詳情面板
     const detailContent = document.getElementById('detailContent');
     if (detailContent) {
       const script = version.scriptId ? await this.db.getScript(version.scriptId) : null;
-      detailContent.innerHTML = `
-        <div class="detail-list">
-          <div class="detail-row"><span>版本 ID</span><strong>${version.versionId}</strong></div>
-          <div class="detail-row"><span>SQL 腳本</span><strong>${script ? this.formatScriptDisplayName(script.scriptName) : '(未知)'}</strong></div>
-          <div class="detail-row"><span>時間</span><strong>${new Date(version.timestamp).toLocaleString('zh-TW')}</strong></div>
-          <div class="detail-row"><span>標籤</span><strong>${version.label}</strong></div>
-          <div class="detail-row"><span>作者</span><strong>${version.author}</strong></div>
-          <div class="detail-row"><span>描述</span><strong>${version.description || '(無)'}</strong></div>
-          <div class="detail-row"><span>父版本</span><strong>${version.parentVersionId || '(根版本)'}</strong></div>
-          <div class="detail-row"><span>存儲模式</span><strong>${version.isDeltaMode ? '差異' : '完整內容'}</strong></div>
-          <div class="detail-row"><span>統計</span><strong class="detail-diff">+${version.stats.linesAdded} -${version.stats.linesRemoved}</strong></div>
-        </div>
-      `;
+      detailContent.replaceChildren();
+      const list = document.createElement('div');
+      list.className = 'detail-list';
+      const rows = [
+        ['版本 ID', version.versionId],
+        ['SQL 腳本', script ? this.formatScriptDisplayName(script.scriptName) : '(未知)'],
+        ['時間', new Date(version.timestamp).toLocaleString('zh-TW')],
+        ['標籤', version.label],
+        ['作者', version.author],
+        ['描述', version.description || '(無)'],
+        ['父版本', version.parentVersionId || '(根版本)'],
+        ['存儲模式', version.isDeltaMode ? '差異' : '完整內容'],
+        ['統計', `+${version.stats.linesAdded} -${version.stats.linesRemoved}`, 'detail-diff']
+      ];
+
+      for (const [labelText, valueText, valueClass] of rows) {
+        const row = document.createElement('div');
+        row.className = 'detail-row';
+        const label = document.createElement('span');
+        label.textContent = labelText;
+        const value = document.createElement('strong');
+        if (valueClass) value.className = valueClass;
+        value.textContent = valueText;
+        row.appendChild(label);
+        row.appendChild(value);
+        list.appendChild(row);
+      }
+
+      detailContent.appendChild(list);
     }
   }
 
@@ -591,7 +671,7 @@ class SQLVersionApp {
     
     // 檢查是否有內容
     if (!sqlContent) {
-      alert('❌ 請先輸入 SQL 內容');
+      await this.showAlert('請先輸入 SQL 內容', { title: '無法保存' });
       return;
     }
     
@@ -630,15 +710,19 @@ class SQLVersionApp {
           ? `上一版本：${latestVersion.label || latestVersion.versionId.substring(0, 8)}`
           : '此 SQL 腳本尚無版本，將建立第一個版本';
 
-        parentInfoDiv.innerHTML = `
-          <div class="parent-version-note">
-            <strong>SQL 腳本：${this.escapeHtml(scriptName)}</strong>
-            <span>${this.escapeHtml(latestText)}</span>
-          </div>
-        `;
+        parentInfoDiv.replaceChildren();
+        const note = document.createElement('div');
+        note.className = 'parent-version-note';
+        const name = document.createElement('strong');
+        name.textContent = `SQL 腳本：${scriptName}`;
+        const latest = document.createElement('span');
+        latest.textContent = latestText;
+        note.appendChild(name);
+        note.appendChild(latest);
+        parentInfoDiv.appendChild(note);
       } catch (error) {
         console.error('讀取 SQL 腳本資訊失敗:', error);
-        parentInfoDiv.innerHTML = '';
+        parentInfoDiv.replaceChildren();
       }
     }
     
@@ -673,17 +757,17 @@ class SQLVersionApp {
     const sql = sqlRaw.trim();
 
     if (!label) {
-      alert('請輸入版本標籤');
+      await this.showAlert('請輸入版本標籤', { title: '資料不完整' });
       return;
     }
 
     if (!author) {
-      alert('請輸入作者');
+      await this.showAlert('請輸入作者', { title: '資料不完整' });
       return;
     }
 
     if (!sql) {
-      alert('請輸入 SQL 內容');
+      await this.showAlert('請輸入 SQL 內容', { title: '資料不完整' });
       return;
     }
 
@@ -700,7 +784,8 @@ class SQLVersionApp {
         createSnapshot
       );
 
-      alert(`版本保存成功！\nID: ${version.versionId}`);
+      this.markEditorClean(sqlRaw);
+      this.showToast(`版本保存成功：${version.versionId}`, { kind: 'success' });
 
       // 關閉對話框
       document.getElementById('newVersionModal').style.display = 'none';
@@ -713,7 +798,7 @@ class SQLVersionApp {
 
       await this.updateStorageUsageStatus();
     } catch (error) {
-      alert('保存版本失敗：' + error.message);
+      await this.showAlert('保存版本失敗：' + error.message, { title: '保存失敗', kind: 'danger' });
     }
   }
 
@@ -775,7 +860,7 @@ class SQLVersionApp {
     const to = compareToEl ? compareToEl.value : '';
 
     if (!from || !to) {
-      alert('請選擇兩個版本進行比對');
+      await this.showAlert('請選擇兩個版本進行比對');
       return;
     }
 
@@ -787,7 +872,7 @@ class SQLVersionApp {
       // 關閉比對對話框
       document.getElementById('compareModal').style.display = 'none';
     } catch (error) {
-      alert('比對失敗：' + error.message);
+      await this.showAlert('比對失敗：' + error.message, { title: '比對失敗', kind: 'danger' });
     }
   }
 
@@ -871,20 +956,29 @@ class SQLVersionApp {
    */
   async revertToVersion() {
     if (!this.selectedVersionId) {
-      alert('請先選擇一個版本');
+      await this.showAlert('請先選擇一個版本');
       return;
     }
 
-    if (confirm(`確定要回溯到版本 ${this.selectedVersionId} 嗎？`)) {
+    const confirmed = await dialogs.showConfirm({
+      title: '回溯版本',
+      message: `確定要回溯到版本 ${this.selectedVersionId} 嗎？目前編輯器內容會被此版本取代。`,
+      confirmText: '回溯',
+      cancelText: '取消',
+      kind: 'warning'
+    });
+
+    if (confirmed) {
       try {
         const content = await this.versionManager.revertToVersion(this.selectedVersionId);
         if (this.monacoEditor) {
           this.monacoEditor.setValue(content);
         }
         this.updateEditorStats();
-        alert('版本已回溯！');
+        this.markEditorClean(content);
+        this.showToast('版本已回溯', { kind: 'success' });
       } catch (error) {
-        alert('回溯失敗：' + error.message);
+        await this.showAlert('回溯失敗：' + error.message, { title: '回溯失敗', kind: 'danger' });
       }
     }
   }
@@ -950,7 +1044,7 @@ class SQLVersionApp {
    */
   async deleteVersion() {
     if (!this.selectedVersionId) {
-      alert('請先選擇一個版本');
+      await this.showAlert('請先選擇一個版本');
       return;
     }
 
@@ -974,7 +1068,7 @@ class SQLVersionApp {
 
       try {
         await this.versionManager.deleteVersion(this.selectedVersionId);
-        alert('版本已刪除');
+        this.showToast('版本已刪除', { kind: 'success' });
 
         // 重新加載版本列表
         await this.loadVersionTree();
@@ -982,18 +1076,16 @@ class SQLVersionApp {
         // 清空編輯器和詳情面板
         if (this.monacoEditor) {
           this.monacoEditor.setValue('');
+          this.markEditorClean('');
         }
-        const detailContent = document.getElementById('detailContent');
-        if (detailContent) {
-          detailContent.innerHTML = '<p class="placeholder-text">選擇一個版本查看詳情</p>';
-        }
+        this.renderDetailPlaceholder();
         this.updateEditorStats();
         await this.updateStorageUsageStatus();
       } catch (error) {
-        alert('刪除失敗：' + error.message);
+        await this.showAlert('刪除失敗：' + error.message, { title: '刪除失敗', kind: 'danger' });
       }
     } catch (error) {
-      alert('刪除前檢查失敗：' + error.message);
+      await this.showAlert('刪除前檢查失敗：' + error.message, { title: '刪除失敗', kind: 'danger' });
     }
   }
 
@@ -1013,16 +1105,14 @@ class SQLVersionApp {
       // 清空編輯器
       if (this.monacoEditor) {
         this.monacoEditor.setValue('');
+        this.markEditorClean('');
       }
       
       // 重新整理版本樹
       await this.loadVersionTree();
       
       // 清空詳情面板
-      const detailContent = document.getElementById('detailContent');
-      if (detailContent) {
-        detailContent.innerHTML = '<p class="placeholder-text">選擇一個版本查看詳情</p>';
-      }
+      this.renderDetailPlaceholder();
       
       // 關閉對話框
       const clearAllModal = document.getElementById('clearAllModal');
@@ -1035,12 +1125,12 @@ class SQLVersionApp {
       await this.updateStorageUsageStatus();
       
       // 顯示成功訊息
-      alert('✓ 所有本機資料已成功清空，已重建預設專案');
+      this.showToast('所有本機資料已成功清空，已重建預設專案', { kind: 'success' });
       
       console.log('✓ 清空全部本機資料完成');
     } catch (error) {
       console.error('❌ 清空資料失敗:', error);
-      alert('❌ 清空資料失敗，請重試');
+      await this.showAlert('清空資料失敗，請重試', { title: '清空失敗', kind: 'danger' });
     }
   }
 
@@ -1057,7 +1147,7 @@ class SQLVersionApp {
    * 顯示標籤管理（暫不實現）
    */
   showTagsManagement() {
-    alert('標籤管理功能即將推出');
+    this.showToast('標籤管理功能即將推出');
   }
 
   /**
@@ -1123,7 +1213,21 @@ class SQLVersionApp {
   /**
    * 切換專案
    */
-  async switchProject(projectId) {
+  async switchProject(projectId, options = {}) {
+    const currentProjectId = this.projectManager.getCurrentProjectId();
+    if (!projectId || projectId === currentProjectId) {
+      await this.updateProjectSelector();
+      return;
+    }
+
+    if (!options.skipUnsavedCheck) {
+      const canSwitch = await this.confirmDiscardUnsavedChanges('切換專案');
+      if (!canSwitch) {
+        await this.updateProjectSelector();
+        return;
+      }
+    }
+
     try {
       await this.projectManager.setCurrentProject(projectId);
       await this.scriptManager.loadScriptsForCurrentProject();
@@ -1142,20 +1246,26 @@ class SQLVersionApp {
       if (this.monacoEditor) {
         this.monacoEditor.setValue('');
         this.updateEditorStats();
+        this.markEditorClean('');
       }
 
       await this.updateStorageUsageStatus();
     } catch (error) {
       console.error('切換專案失敗:', error);
-      alert('切換專案失敗：' + error.message);
+      await this.updateProjectSelector();
+      await this.showAlert('切換專案失敗：' + error.message, { title: '切換失敗', kind: 'danger' });
     }
   }
 
   /**
    * 顯示建立專案對話框
    */
-  showCreateProjectDialog() {
-    const projectName = prompt('請輸入新專案名稱：');
+  async showCreateProjectDialog() {
+    const projectName = await dialogs.showPrompt({
+      title: '建立專案',
+      message: '請輸入新專案名稱：',
+      confirmText: '建立'
+    });
     if (!projectName || projectName.trim() === '') {
       return;
     }
@@ -1168,52 +1278,51 @@ class SQLVersionApp {
    */
   async createProject(projectName) {
     try {
+      const canSwitch = await this.confirmDiscardUnsavedChanges('建立專案後切換到新專案');
+      if (!canSwitch) return;
+
       const project = await this.projectManager.createProject(projectName);
       console.log('✓ 已建立新專案:', project.projectName);
 
       // 自動切換到新專案
-      await this.switchProject(project.projectId);
+      await this.switchProject(project.projectId, { skipUnsavedCheck: true });
       await this.updateStorageUsageStatus();
 
-      alert(`已成功建立新專案「${projectName}」`);
+      this.showToast(`已成功建立新專案「${projectName}」`, { kind: 'success' });
     } catch (error) {
       console.error('建立專案失敗:', error);
-      alert('建立專案失敗：' + error.message);
+      await this.showAlert('建立專案失敗：' + error.message, { title: '建立失敗', kind: 'danger' });
     }
   }
 
   /**
    * 顯示刪除專案對話框
    */
-  showDeleteProjectDialog() {
+  async showDeleteProjectDialog() {
     const projects = this.projectManager.getProjects();
     const currentProjectId = this.projectManager.getCurrentProjectId();
     
     if (projects.length <= 1) {
-      alert('至少需要保留一個專案，無法刪除。');
+      await this.showAlert('至少需要保留一個專案，無法刪除。');
       return;
     }
-    
-    // 建立選項文字，顯示所有專案
-    let message = '請選擇要刪除的專案：\n\n';
-    projects.forEach((proj, index) => {
-      const isCurrent = proj.projectId === currentProjectId;
-      message += `${index + 1}. ${proj.projectName}${isCurrent ? ' (當前專案)' : ''}\n`;
+
+    const projectId = await dialogs.showSelect({
+      title: '刪除專案',
+      message: '請選擇要刪除的專案：',
+      options: projects.map((proj) => ({
+        value: proj.projectId,
+        label: `${proj.projectName}${proj.projectId === currentProjectId ? ' (當前專案)' : ''}`
+      })),
+      confirmText: '下一步'
     });
-    
-    const selection = prompt(message + '\n請輸入專案編號（1-' + projects.length + '）：');
-    
-    if (!selection) {
-      return;  // 用戶取消
-    }
-    
-    const index = parseInt(selection) - 1;
-    if (isNaN(index) || index < 0 || index >= projects.length) {
-      alert('無效的選擇');
+
+    if (!projectId) {
       return;
     }
     
-    const projectToDelete = projects[index];
+    const projectToDelete = projects.find((project) => project.projectId === projectId);
+    if (!projectToDelete) return;
     this.deleteProject(projectToDelete.projectId, projectToDelete.projectName);
   }
 
@@ -1225,6 +1334,11 @@ class SQLVersionApp {
     const isCurrentProject = projectId === currentProjectId;
 
     try {
+      if (isCurrentProject) {
+        const canDeleteCurrent = await this.confirmDiscardUnsavedChanges('刪除目前專案');
+        if (!canDeleteCurrent) return;
+      }
+
       const stats = await this.db.getProjectImpactStats(projectId);
       const confirmed = await this.confirmDangerAction({
         title: '刪除專案',
@@ -1247,7 +1361,8 @@ class SQLVersionApp {
         
         if (otherProject) {
           console.log(`正在切換到專案「${otherProject.projectName}」...`);
-          await this.switchProject(otherProject.projectId);
+          await this.projectManager.setCurrentProject(otherProject.projectId);
+          await this.scriptManager.loadScriptsForCurrentProject();
         }
       }
       
@@ -1262,12 +1377,18 @@ class SQLVersionApp {
 
       // 重新加載版本列表
       await this.loadVersionTree();
+      if (isCurrentProject && this.monacoEditor) {
+        this.monacoEditor.setValue('');
+        this.updateEditorStats();
+        this.markEditorClean('');
+        this.renderDetailPlaceholder();
+      }
       await this.updateStorageUsageStatus();
       
-      alert(`專案「${projectName}」已成功刪除`);
+      this.showToast(`專案「${projectName}」已成功刪除`, { kind: 'success' });
     } catch (error) {
       console.error('刪除專案失敗:', error);
-      alert('刪除專案失敗：' + error.message);
+      await this.showAlert('刪除專案失敗：' + error.message, { title: '刪除失敗', kind: 'danger' });
     }
   }
 
@@ -1278,7 +1399,21 @@ class SQLVersionApp {
   /**
    * 切換 SQL 腳本
    */
-  async switchScript(scriptId) {
+  async switchScript(scriptId, options = {}) {
+    const currentScriptId = this.scriptManager.getCurrentScriptId();
+    if (!scriptId || scriptId === currentScriptId) {
+      await this.updateScriptSelector();
+      return;
+    }
+
+    if (!options.skipUnsavedCheck) {
+      const canSwitch = await this.confirmDiscardUnsavedChanges('切換 SQL 腳本');
+      if (!canSwitch) {
+        await this.updateScriptSelector();
+        return;
+      }
+    }
+
     try {
       await this.scriptManager.setCurrentScript(scriptId);
       this.selectedVersionId = null;
@@ -1288,33 +1423,40 @@ class SQLVersionApp {
       if (this.monacoEditor) {
         this.monacoEditor.setValue('');
         this.updateEditorStats();
+        this.markEditorClean('');
       }
 
-      const detailContent = document.getElementById('detailContent');
-      if (detailContent) {
-        detailContent.innerHTML = '<p class="placeholder-text">選擇一個版本查看詳情</p>';
-      }
+      this.renderDetailPlaceholder();
     } catch (error) {
       console.error('切換 SQL 腳本失敗:', error);
-      alert('切換 SQL 腳本失敗：' + error.message);
+      await this.updateScriptSelector();
+      await this.showAlert('切換 SQL 腳本失敗：' + error.message, { title: '切換失敗', kind: 'danger' });
     }
   }
 
-  showCreateScriptDialog() {
-    const scriptName = prompt('請輸入 SQL 腳本名稱：', 'new-script');
+  async showCreateScriptDialog() {
+    const scriptName = await dialogs.showPrompt({
+      title: '建立 SQL 腳本',
+      message: '請輸入 SQL 腳本名稱：',
+      defaultValue: 'new-script',
+      confirmText: '建立'
+    });
     if (!scriptName || scriptName.trim() === '') return;
     this.createScript(scriptName);
   }
 
   async createScript(scriptName) {
     try {
+      const canSwitch = await this.confirmDiscardUnsavedChanges('建立 SQL 腳本後切換到新腳本');
+      if (!canSwitch) return;
+
       const script = await this.scriptManager.createScript(scriptName);
       await this.updateScriptSelector();
-      await this.switchScript(script.scriptId);
-      alert(`已成功建立 SQL 腳本「${script.scriptName}」`);
+      await this.switchScript(script.scriptId, { skipUnsavedCheck: true });
+      this.showToast(`已成功建立 SQL 腳本「${script.scriptName}」`, { kind: 'success' });
     } catch (error) {
       console.error('建立 SQL 腳本失敗:', error);
-      alert('建立 SQL 腳本失敗：' + error.message);
+      await this.showAlert('建立 SQL 腳本失敗：' + error.message, { title: '建立失敗', kind: 'danger' });
     }
   }
 
@@ -1322,34 +1464,39 @@ class SQLVersionApp {
     return scriptName === 'main.sql' ? 'main' : scriptName;
   }
 
-  showDeleteScriptDialog() {
+  async showDeleteScriptDialog() {
     const scripts = this.scriptManager.getScripts();
     if (scripts.length <= 1) {
-      alert('至少需要保留一支 SQL 腳本，無法刪除。');
+      await this.showAlert('至少需要保留一支 SQL 腳本，無法刪除。');
       return;
     }
 
-    let message = '請選擇要刪除的 SQL 腳本：\n\n';
-    scripts.forEach((script, index) => {
-      const isCurrent = script.scriptId === this.scriptManager.getCurrentScriptId();
-      message += `${index + 1}. ${script.scriptName}${isCurrent ? ' (當前)' : ''}\n`;
+    const scriptId = await dialogs.showSelect({
+      title: '刪除 SQL 腳本',
+      message: '請選擇要刪除的 SQL 腳本：',
+      options: scripts.map((script) => ({
+        value: script.scriptId,
+        label: `${script.scriptName}${script.scriptId === this.scriptManager.getCurrentScriptId() ? ' (當前)' : ''}`
+      })),
+      confirmText: '下一步'
     });
 
-    const selection = prompt(message + '\n請輸入 SQL 腳本編號（1-' + scripts.length + '）：');
-    if (!selection) return;
-
-    const index = parseInt(selection) - 1;
-    if (isNaN(index) || index < 0 || index >= scripts.length) {
-      alert('無效的選擇');
+    if (!scriptId) {
       return;
     }
 
-    const script = scripts[index];
+    const script = scripts.find((item) => item.scriptId === scriptId);
+    if (!script) return;
     this.deleteScript(script.scriptId, script.scriptName);
   }
 
   async deleteScript(scriptId, scriptName) {
     try {
+      if (scriptId === this.scriptManager.getCurrentScriptId()) {
+        const canDeleteCurrent = await this.confirmDiscardUnsavedChanges('刪除目前 SQL 腳本');
+        if (!canDeleteCurrent) return;
+      }
+
       const stats = await this.db.getScriptImpactStats(scriptId);
       const confirmed = await this.confirmDangerAction({
         title: '刪除 SQL 腳本',
@@ -1371,18 +1518,16 @@ class SQLVersionApp {
       if (this.monacoEditor) {
         this.monacoEditor.setValue('');
         this.updateEditorStats();
+        this.markEditorClean('');
       }
 
-      const detailContent = document.getElementById('detailContent');
-      if (detailContent) {
-        detailContent.innerHTML = '<p class="placeholder-text">選擇一個版本查看詳情</p>';
-      }
+      this.renderDetailPlaceholder();
 
       await this.updateStorageUsageStatus();
-      alert(`SQL 腳本「${scriptName}」已成功刪除`);
+      this.showToast(`SQL 腳本「${scriptName}」已成功刪除`, { kind: 'success' });
     } catch (error) {
       console.error('刪除 SQL 腳本失敗:', error);
-      alert('刪除 SQL 腳本失敗：' + error.message);
+      await this.showAlert('刪除 SQL 腳本失敗：' + error.message, { title: '刪除失敗', kind: 'danger' });
     }
   }
 

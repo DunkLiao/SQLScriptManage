@@ -207,6 +207,8 @@ class VersionTreeController {
       this.onError(message);
       return;
     }
-    alert(message);
+    if (typeof dialogs !== 'undefined') {
+      dialogs.showAlert({ title: '操作失敗', message, kind: 'danger' });
+    }
   }
 }

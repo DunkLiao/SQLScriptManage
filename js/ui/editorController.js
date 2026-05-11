@@ -9,7 +9,12 @@ class EditorController {
     this.scriptManager = options.scriptManager;
     this.importExportManager = options.importExportManager;
     this.onSaveVersion = options.onSaveVersion;
-    this.onError = options.onError || ((message) => alert(message));
+    this.onError = options.onError || ((message) => {
+      if (typeof dialogs !== 'undefined') {
+        dialogs.showAlert({ title: '提示', message });
+      }
+    });
+    this.onContentChanged = options.onContentChanged || (() => {});
 
     this.monacoEditor = null;
     this.leftMonacoEditor = null;
@@ -74,6 +79,7 @@ class EditorController {
           this.monacoEditor.onDidChangeModelContent(() => {
             this.updateEditorStats();
             this.updateStatusBar();
+            this.onContentChanged(this.monacoEditor.getValue());
           });
           this.monacoEditor.onDidChangeCursorPosition(() => this.updateStatusBar());
           this.monacoEditor.onDidChangeCursorSelection(() => this.updateStatusBar());

@@ -675,7 +675,13 @@
       
       if (typeof diff_match_patch === 'undefined') {
         console.error('❌ diff-match-patch 庫加載失敗，請檢查網絡連接');
-        alert('差異比對庫加載失敗，請刷新頁面重試');
+        if (typeof dialogs !== 'undefined') {
+          dialogs.showAlert({
+            title: '載入失敗',
+            message: '差異比對庫加載失敗，請刷新頁面重試',
+            kind: 'danger'
+          });
+        }
       }
     });
   </script>
