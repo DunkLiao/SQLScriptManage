@@ -9,6 +9,7 @@ class SQLVersionApp {
     this.importExportManager = null;
     this.projectManager = null;  // v3 新增：專案管理器
     this.scriptManager = null;   // v5 新增：SQL 腳本管理器
+    this.versionTreeController = null;
     this.currentVersion = null;
     this.selectedVersionId = null;
     this.pendingImportData = null;  // v3 新增：待導入的數據
@@ -51,6 +52,9 @@ class SQLVersionApp {
       if (typeof scriptManager === 'undefined') {
         throw new Error('scriptManager 模塊未加載');
       }
+      if (typeof VersionTreeController === 'undefined') {
+        throw new Error('versionTree UI 模塊未加載');
+      }
       
       console.log('✓ 所有依賴模塊已成功加載');
 
@@ -82,6 +86,8 @@ class SQLVersionApp {
       await importExportManager.init(db, versionManager, diffEngine, projectManager, scriptManager);
       this.importExportManager = importExportManager;
       console.log('✓ 導入導出管理器初始化完成');
+
+      this.initVersionTreeController();
 
       // 綁定 UI 事件
       console.log('正在綁定 UI 事件...');
@@ -133,6 +139,24 @@ class SQLVersionApp {
         statusElement.classList.add('status-error');
       }
     }
+  }
+
+  initVersionTreeController() {
+    this.versionTreeController = new VersionTreeController({
+      versionManager: this.versionManager,
+      scriptManager: this.scriptManager,
+      treeContainer: document.getElementById('versionTree'),
+      searchInput: document.getElementById('searchVersions'),
+      searchButton: document.getElementById('btnSearch'),
+      contextMenu: document.getElementById('contextMenu'),
+      contextCompare: document.getElementById('contextCompare'),
+      titleElement: document.querySelector('.card.card-version-tree .card-header h3'),
+      formatScriptDisplayName: (scriptName) => this.formatScriptDisplayName(scriptName),
+      onSelectVersion: (versionId) => this.selectVersion(versionId),
+      onCompareVersion: (versionId) => this.compareWithCurrent(versionId),
+      onError: (message) => alert(message)
+    });
+    this.versionTreeController.bindEvents();
   }
 
   /**
@@ -298,37 +322,6 @@ class SQLVersionApp {
       initStatus.addEventListener('click', () => this.reinitializeApp());
     }
 
-    // 版本列表
-    const btnSearch = document.getElementById('btnSearch');
-    if (btnSearch) {
-      btnSearch.addEventListener('click', () => this.searchVersions());
-    }
-    const searchVersions = document.getElementById('searchVersions');
-    if (searchVersions) {
-      searchVersions.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') this.searchVersions();
-      });
-    }
-    
-    // 右鍵選單
-    const contextMenu = document.getElementById('contextMenu');
-    if (contextMenu) {
-      document.addEventListener('contextmenu', (e) => {
-        contextMenu.style.display = 'none';
-      });
-    }
-    
-    const contextCompare = document.getElementById('contextCompare');
-    if (contextCompare && contextMenu) {
-      contextCompare.addEventListener('click', () => {
-        const versionId = contextMenu.dataset.versionId;
-        contextMenu.style.display = 'none';
-        if (versionId) {
-          this.compareWithCurrent(versionId);
-        }
-      });
-    }
-    
     // 快捷鍵
     document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
 
@@ -598,118 +591,17 @@ class SQLVersionApp {
    * 加載版本列表樹
    */
   async loadVersionTree() {
-    const versions = await this.versionManager.getAllVersions();
-    const treeContainer = document.getElementById('versionTree');
-    treeContainer.innerHTML = '';
-
-    // 顯示列表數量，便於確認是否取到完整資料
-    const titleEl = document.querySelector('.card.card-version-tree .card-header h3');
-    if (titleEl) {
-      const currentScript = this.scriptManager?.getCurrentScript();
-      const scriptName = currentScript ? ` - ${this.formatScriptDisplayName(currentScript.scriptName)}` : '';
-      titleEl.textContent = `版本列表${scriptName}（${versions.length}）`;
+    if (this.versionTreeController) {
+      await this.versionTreeController.load();
     }
-
-    console.log('版本列表加載：', versions.map(v => v.versionId));
-
-    if (versions.length === 0) {
-      treeContainer.innerHTML = '<p class="empty-state">此 SQL 腳本暫無版本</p>';
-      return;
-    }
-
-    // 使用 DocumentFragment 減少重排，並保護單筆渲染錯誤不影響整體
-    const frag = document.createDocumentFragment();
-    for (const version of versions) {
-      try {
-        const item = this.createVersionTreeItem(version);
-        frag.appendChild(item);
-      } catch (e) {
-        console.warn('渲染版本項目失敗：', version.versionId, e);
-      }
-    }
-    treeContainer.appendChild(frag);
-  }
-
-  /**
-   * 創建版本樹項目
-   */
-  createVersionTreeItem(version) {
-    const item = document.createElement('div');
-    item.className = 'version-item';
-    item.dataset.versionId = version.versionId;
-
-    const header = document.createElement('div');
-    header.className = 'version-item-header';
-
-    const toggle = document.createElement('span');
-    toggle.className = 'version-toggle';
-    toggle.textContent = '▼';
-
-    const description = document.createElement('span');
-    description.className = 'version-description';
-    description.textContent = version.description || '(無描述)';
-
-    const id = document.createElement('span');
-    id.className = 'version-id';
-    id.textContent = version.versionId;
-
-    header.appendChild(toggle);
-    header.appendChild(description);
-    header.appendChild(id);
-
-    const detail = document.createElement('div');
-    detail.className = 'version-item-detail';
-    const date = new Date(version.timestamp).toLocaleString('zh-TW');
-    detail.textContent = `${date} • ${version.author}`;
-
-    item.appendChild(header);
-    item.appendChild(detail);
-
-    // 綁定點擊事件
-    item.addEventListener('click', () => this.selectVersion(version.versionId));
-    
-    // 綁定右鍵選單事件
-    item.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      this.showContextMenu(e, version.versionId);
-    });
-
-    return item;
-  }
-  
-  /**
-   * 顯示右鍵選單
-   */
-  showContextMenu(event, versionId) {
-    const contextMenu = document.getElementById('contextMenu');
-    contextMenu.dataset.versionId = versionId;
-    
-    // 定位選單
-    contextMenu.style.left = event.clientX + 'px';
-    contextMenu.style.top = event.clientY + 'px';
-    contextMenu.style.display = 'block';
-    
-    // 點擊其他地方關閉選單
-    setTimeout(() => {
-      document.addEventListener('click', () => {
-        contextMenu.style.display = 'none';
-      }, { once: true });
-    }, 0);
   }
 
   /**
    * 選擇版本
    */
   async selectVersion(versionId) {
-    // 移除前一個選中狀態
-    document.querySelectorAll('.version-item.active').forEach(item => {
-      item.classList.remove('active');
-    });
-
-    // 標記當前版本為選中
-    const selectedItem = document.querySelector(`[data-version-id="${versionId}"]`);
-    if (selectedItem) {
-      selectedItem.classList.add('active');
+    if (this.versionTreeController) {
+      this.versionTreeController.setSelectedVersion(versionId);
     }
 
     this.selectedVersionId = versionId;
@@ -1219,32 +1111,8 @@ class SQLVersionApp {
    * 搜尋版本
    */
   async searchVersions() {
-    const searchVersionsEl = document.getElementById('searchVersions');
-    const keyword = searchVersionsEl ? searchVersionsEl.value.trim() : '';
-
-    if (!keyword) {
-      await this.loadVersionTree();
-      return;
-    }
-
-    try {
-      const results = await this.versionManager.searchVersions(keyword);
-      const treeContainer = document.getElementById('versionTree');
-      if (!treeContainer) return;
-      
-      treeContainer.innerHTML = '';
-
-      if (results.length === 0) {
-        treeContainer.innerHTML = '<p class="empty-state">未找到相符的版本</p>';
-        return;
-      }
-
-      for (const version of results) {
-        const item = this.createVersionTreeItem(version);
-        treeContainer.appendChild(item);
-      }
-    } catch (error) {
-      alert('搜尋失敗：' + error.message);
+    if (this.versionTreeController) {
+      await this.versionTreeController.searchFromInput();
     }
   }
 
