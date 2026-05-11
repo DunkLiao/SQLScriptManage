@@ -22,9 +22,10 @@
 
 - [x] 將 `js/app.js` 的彈窗與提示邏輯拆到 `js/ui/dialogs.js`。
 - [x] 將版本列表渲染、搜尋與右鍵選單拆到 `js/ui/versionTree.js`。
-- [ ] 將 Monaco 初始化、主題、快捷鍵與編輯器狀態拆到 `js/ui/editorController.js`。
-- [ ] 將匯入/匯出/備份/還原 UI 流程拆到 `js/ui/importExportDialogs.js`。
-- [ ] 保留 `js/app.js` 作為 bootstrap 與模組協調層。
+- [x] 將 Monaco 初始化、主題、快捷鍵與編輯器狀態拆到 `js/ui/editorController.js`。
+- [x] 將匯入/匯出/備份/還原 UI 流程拆到 `js/ui/importExportDialogs.js`。
+- [x] 保留 `js/app.js` 作為 bootstrap 與模組協調層。
+- [x] 拆分後手動測試通過，確認主控制器拆分未破壞既有操作流程。
 
 ## 中優先：UI/UX
 

@@ -654,6 +654,8 @@
   <script src="js/modules/importExport.js?v=5"></script>
   <script src="js/ui/dialogs.js?v=5"></script>
   <script src="js/ui/versionTree.js?v=5"></script>
+  <script src="js/ui/editorController.js?v=5"></script>
+  <script src="js/ui/importExportDialogs.js?v=5"></script>
   <script src="js/app.js?v=5"></script>
   
   <!-- 初始化檢查 -->
@@ -668,6 +670,8 @@
       console.log('- scriptManager:', typeof scriptManager !== 'undefined' ? '✓' : '✗');
       console.log('- versionManager:', typeof versionManager !== 'undefined' ? '✓' : '✗');
       console.log('- importExportManager:', typeof importExportManager !== 'undefined' ? '✓' : '✗');
+      console.log('- EditorController:', typeof EditorController !== 'undefined' ? '✓' : '✗');
+      console.log('- ImportExportDialogs:', typeof ImportExportDialogs !== 'undefined' ? '✓' : '✗');
       
       if (typeof diff_match_patch === 'undefined') {
         console.error('❌ diff-match-patch 庫加載失敗，請檢查網絡連接');

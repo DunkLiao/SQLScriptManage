@@ -10,17 +10,14 @@ class SQLVersionApp {
     this.projectManager = null;  // v3 新增：專案管理器
     this.scriptManager = null;   // v5 新增：SQL 腳本管理器
     this.versionTreeController = null;
+    this.editorController = null;
+    this.importExportDialogs = null;
     this.currentVersion = null;
     this.selectedVersionId = null;
-    this.pendingImportData = null;  // v3 新增：待導入的數據
-    
-    // Monaco Editor 相關
-    this.monacoEditor = null;
-    this.leftMonacoEditor = null;
-    this.rightMonacoEditor = null;
-    this.isSplitView = false;
-    this.isSyncScroll = true;
-    this.currentTheme = 'light';
+  }
+
+  get monacoEditor() {
+    return this.editorController ? this.editorController.monacoEditor : null;
   }
 
   /**
@@ -55,6 +52,12 @@ class SQLVersionApp {
       if (typeof VersionTreeController === 'undefined') {
         throw new Error('versionTree UI 模塊未加載');
       }
+      if (typeof EditorController === 'undefined') {
+        throw new Error('editorController UI 模塊未加載');
+      }
+      if (typeof ImportExportDialogs === 'undefined') {
+        throw new Error('importExportDialogs UI 模塊未加載');
+      }
       
       console.log('✓ 所有依賴模塊已成功加載');
 
@@ -88,6 +91,8 @@ class SQLVersionApp {
       console.log('✓ 導入導出管理器初始化完成');
 
       this.initVersionTreeController();
+      this.initEditorController();
+      this.initImportExportDialogs();
 
       // 綁定 UI 事件
       console.log('正在綁定 UI 事件...');
@@ -96,12 +101,12 @@ class SQLVersionApp {
 
       // 初始化 Monaco Editor
       console.log('正在初始化 Monaco Editor...');
-      await this.initMonacoEditor();
+      await this.editorController.init();
       console.log('✓ Monaco Editor 初始化完成');
 
       // 加載並應用主題
       console.log('正在加載主題設定...');
-      await this.loadTheme();
+      await this.editorController.loadTheme();
       console.log('✓ 主題設定完成');
 
       // 加載版本列表
@@ -153,10 +158,59 @@ class SQLVersionApp {
       titleElement: document.querySelector('.card.card-version-tree .card-header h3'),
       formatScriptDisplayName: (scriptName) => this.formatScriptDisplayName(scriptName),
       onSelectVersion: (versionId) => this.selectVersion(versionId),
-      onCompareVersion: (versionId) => this.compareWithCurrent(versionId),
+      onCompareVersion: (versionId) => this.editorController.compareWithCurrent(versionId),
       onError: (message) => alert(message)
     });
     this.versionTreeController.bindEvents();
+  }
+
+  initEditorController() {
+    this.editorController = new EditorController({
+      db: this.db,
+      versionManager: this.versionManager,
+      scriptManager: this.scriptManager,
+      importExportManager: this.importExportManager,
+      onSaveVersion: () => this.showSaveVersionDialog(),
+      onError: (message) => alert(message)
+    });
+    this.editorController.bindEvents();
+  }
+
+  initImportExportDialogs() {
+    this.importExportDialogs = new ImportExportDialogs({
+      db: this.db,
+      projectManager: this.projectManager,
+      scriptManager: this.scriptManager,
+      importExportManager: this.importExportManager,
+      renderImpactSummary: (container, title, items, options) => {
+        this.renderImpactSummary(container, title, items, options);
+      },
+      confirmDangerAction: (options) => this.confirmDangerAction(options),
+      onDataChanged: (options) => this.reloadAfterDataImport(options),
+      onError: (message) => alert(message)
+    });
+    this.importExportDialogs.bindEvents();
+  }
+
+  refreshControllerDependencies() {
+    if (this.versionTreeController) {
+      this.versionTreeController.versionManager = this.versionManager;
+      this.versionTreeController.scriptManager = this.scriptManager;
+    }
+
+    if (this.editorController) {
+      this.editorController.db = this.db;
+      this.editorController.versionManager = this.versionManager;
+      this.editorController.scriptManager = this.scriptManager;
+      this.editorController.importExportManager = this.importExportManager;
+    }
+
+    if (this.importExportDialogs) {
+      this.importExportDialogs.db = this.db;
+      this.importExportDialogs.projectManager = this.projectManager;
+      this.importExportDialogs.scriptManager = this.scriptManager;
+      this.importExportDialogs.importExportManager = this.importExportManager;
+    }
   }
 
   /**
@@ -170,11 +224,11 @@ class SQLVersionApp {
     }
     const btnFormatSQL = document.getElementById('btnFormatSQL');
     if (btnFormatSQL) {
-      btnFormatSQL.addEventListener('click', () => this.formatSQL());
+      btnFormatSQL.addEventListener('click', () => this.editorController.formatSQL());
     }
     const btnCompareMode = document.getElementById('btnCompareMode');
     if (btnCompareMode) {
-      btnCompareMode.addEventListener('click', () => this.toggleCompareMode());
+      btnCompareMode.addEventListener('click', () => this.editorController.toggleCompareMode());
     }
     const btnDeleteVersion = document.getElementById('btnDeleteVersion');
     if (btnDeleteVersion) {
@@ -182,7 +236,7 @@ class SQLVersionApp {
     }
     const btnDownloadSQL = document.getElementById('btnDownloadSQL');
     if (btnDownloadSQL) {
-      btnDownloadSQL.addEventListener('click', () => this.downloadCurrentSQL());
+      btnDownloadSQL.addEventListener('click', () => this.editorController.downloadCurrentSQL());
     }
 
     const btnHelp = document.getElementById('btnHelp');
@@ -198,7 +252,7 @@ class SQLVersionApp {
     // 主題切換
     const btnThemeToggle = document.getElementById('btnThemeToggle');
     if (btnThemeToggle) {
-      btnThemeToggle.addEventListener('click', () => this.toggleTheme());
+      btnThemeToggle.addEventListener('click', () => this.editorController.toggleTheme());
     }
     
     // 更多選單
@@ -218,36 +272,14 @@ class SQLVersionApp {
       });
     }
     
-    // 分割視圖控制
-    const btnCloseSplit = document.getElementById('btnCloseSplit');
-    if (btnCloseSplit) {
-      btnCloseSplit.addEventListener('click', () => this.closeSplitView());
-    }
-    
-    const btnSyncScroll = document.getElementById('btnSyncScroll');
-    if (btnSyncScroll) {
-      btnSyncScroll.addEventListener('click', () => this.toggleSyncScroll());
-    }
-    
-    // 版本選擇下拉
-    const leftVersionSelect = document.getElementById('leftVersionSelect');
-    if (leftVersionSelect) {
-      leftVersionSelect.addEventListener('change', (e) => this.loadVersionToSplit('left', e.target.value));
-    }
-    
-    const rightVersionSelect = document.getElementById('rightVersionSelect');
-    if (rightVersionSelect) {
-      rightVersionSelect.addEventListener('change', (e) => this.loadVersionToSplit('right', e.target.value));
-    }
-
     // 導航欄按鈕
     const btnExport = document.getElementById('btnExport');
     if (btnExport) {
-      btnExport.addEventListener('click', () => this.showExportDialog());
+      btnExport.addEventListener('click', () => this.importExportDialogs.showExportDialog());
     }
     const btnImport = document.getElementById('btnImport');
     if (btnImport) {
-      btnImport.addEventListener('click', () => this.showImportDialog());
+      btnImport.addEventListener('click', () => this.importExportDialogs.showImportDialog());
     }
     
     // 從更多選單中觸發的功能
@@ -262,14 +294,14 @@ class SQLVersionApp {
     if (btnFullBackup && moreMenu) {
       btnFullBackup.addEventListener('click', () => {
         moreMenu.style.display = 'none';
-        this.showFullBackupDialog();
+        this.importExportDialogs.showFullBackupDialog();
       });
     }
     const btnFullRestore = document.getElementById('btnFullRestore');
     if (btnFullRestore && moreMenu) {
       btnFullRestore.addEventListener('click', () => {
         moreMenu.style.display = 'none';
-        this.showFullRestoreDialog();
+        this.importExportDialogs.showFullRestoreDialog();
       });
     }
     const btnClearAllData = document.getElementById('btnClearAllData');
@@ -323,7 +355,7 @@ class SQLVersionApp {
     }
 
     // 快捷鍵
-    document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
+    document.addEventListener('keydown', (e) => this.editorController.handleKeyboardShortcuts(e));
 
     // 模態對話框
     this.bindDialogEvents();
@@ -363,6 +395,7 @@ class SQLVersionApp {
       console.log('重新初始化導入導出管理器...');
       await importExportManager.init(db, versionManager, diffEngine, projectManager, scriptManager);
       this.importExportManager = importExportManager;
+      this.refreshControllerDependencies();
       
       // 重新加載版本列表
       console.log('重新加載版本列表...');
@@ -437,50 +470,6 @@ class SQLVersionApp {
       btnDoCompare.addEventListener('click', () => this.performComparison());
     }
 
-    // 導出對話框
-    const btnCloseExport = document.getElementById('btnCloseExport');
-    if (btnCloseExport) {
-      btnCloseExport.addEventListener('click', () => {
-        document.getElementById('exportModal').style.display = 'none';
-      });
-    }
-    const btnCancelExport = document.getElementById('btnCancelExport');
-    if (btnCancelExport) {
-      btnCancelExport.addEventListener('click', () => {
-        document.getElementById('exportModal').style.display = 'none';
-      });
-    }
-    const btnStartExport = document.getElementById('btnStartExport');
-    if (btnStartExport) {
-      btnStartExport.addEventListener('click', () => this.performExport());
-    }
-
-    // 導入檔案輸入
-    const importFileInput = document.getElementById('importFileInput');
-    if (importFileInput) {
-      importFileInput.addEventListener('change', (e) => {
-        this.handleImportFile(e);
-      });
-    }
-
-    // 衝突確認對話框
-    const btnCloseConflict = document.getElementById('btnCloseConflict');
-    if (btnCloseConflict) {
-      btnCloseConflict.addEventListener('click', () => {
-        document.getElementById('conflictModal').style.display = 'none';
-      });
-    }
-    const btnCancelImport = document.getElementById('btnCancelImport');
-    if (btnCancelImport) {
-      btnCancelImport.addEventListener('click', () => {
-        document.getElementById('conflictModal').style.display = 'none';
-      });
-    }
-    const btnConfirmImport = document.getElementById('btnConfirmImport');
-    if (btnConfirmImport) {
-      btnConfirmImport.addEventListener('click', () => this.confirmImport());
-    }
-
     // 差異面板關閉
     const btnCloseDiff = document.getElementById('btnCloseDiff');
     if (btnCloseDiff) {
@@ -511,78 +500,7 @@ class SQLVersionApp {
     if (btnBackupBeforeClearAll) {
       btnBackupBeforeClearAll.addEventListener('click', async () => {
         document.getElementById('clearAllModal').style.display = 'none';
-        await this.showFullBackupDialog();
-      });
-    }
-
-    // v3 新增：導入目標專案選擇對話框（備用關閉按鈕）
-    const btnCloseImportProject = document.getElementById('btnCloseImportProject');
-    if (btnCloseImportProject) {
-      btnCloseImportProject.addEventListener('click', () => {
-        document.getElementById('importProjectModal').style.display = 'none';
-      });
-    }
-    const btnCancelImportProject = document.getElementById('btnCancelImportProject');
-    if (btnCancelImportProject) {
-      btnCancelImportProject.addEventListener('click', () => {
-        document.getElementById('importProjectModal').style.display = 'none';
-      });
-    }
-
-    // 完整備份對話框
-    const btnCloseFullBackup = document.getElementById('btnCloseFullBackup');
-    if (btnCloseFullBackup) {
-      btnCloseFullBackup.addEventListener('click', () => {
-        document.getElementById('fullBackupModal').style.display = 'none';
-      });
-    }
-    const btnCancelFullBackup = document.getElementById('btnCancelFullBackup');
-    if (btnCancelFullBackup) {
-      btnCancelFullBackup.addEventListener('click', () => {
-        document.getElementById('fullBackupModal').style.display = 'none';
-      });
-    }
-    const btnConfirmFullBackup = document.getElementById('btnConfirmFullBackup');
-    if (btnConfirmFullBackup) {
-      btnConfirmFullBackup.addEventListener('click', () => this.performFullBackup());
-    }
-
-    // 完整還原對話框
-    const btnCloseFullRestore = document.getElementById('btnCloseFullRestore');
-    if (btnCloseFullRestore) {
-      btnCloseFullRestore.addEventListener('click', () => {
-        document.getElementById('fullRestoreModal').style.display = 'none';
-      });
-    }
-    const btnCancelFullRestore = document.getElementById('btnCancelFullRestore');
-    if (btnCancelFullRestore) {
-      btnCancelFullRestore.addEventListener('click', () => {
-        document.getElementById('fullRestoreModal').style.display = 'none';
-      });
-    }
-    const btnConfirmFullRestore = document.getElementById('btnConfirmFullRestore');
-    if (btnConfirmFullRestore) {
-      btnConfirmFullRestore.addEventListener('click', () => this.performFullRestore());
-    }
-
-    document.querySelectorAll('input[name="restoreStrategy"]').forEach(input => {
-      input.addEventListener('change', () => this.updateFullRestorePreview());
-    });
-
-    document.querySelectorAll('input[name="strategy"]').forEach(input => {
-      input.addEventListener('change', () => this.updateImportPreviewSummary());
-    });
-
-    const restoreClearExisting = document.getElementById('restoreClearExisting');
-    if (restoreClearExisting) {
-      restoreClearExisting.addEventListener('change', () => this.updateFullRestorePreview());
-    }
-
-    // 完整還原檔案輸入
-    const fullRestoreFileInput = document.getElementById('fullRestoreFileInput');
-    if (fullRestoreFileInput) {
-      fullRestoreFileInput.addEventListener('change', (e) => {
-        this.handleFullRestoreFile(e);
+        await this.importExportDialogs.showFullBackupDialog();
       });
     }
   }
@@ -594,6 +512,25 @@ class SQLVersionApp {
     if (this.versionTreeController) {
       await this.versionTreeController.load();
     }
+  }
+
+  async reloadAfterDataImport(options = {}) {
+    if (options.reloadProjects) {
+      await this.projectManager.loadProjects();
+      const projects = this.projectManager.getProjects();
+      if (projects.length > 0) {
+        const currentId = this.projectManager.getCurrentProjectId();
+        if (!projects.some(project => project.projectId === currentId)) {
+          await this.projectManager.setCurrentProject(projects[0].projectId);
+        }
+      }
+    }
+
+    await this.scriptManager.loadScriptsForCurrentProject();
+    await this.updateProjectSelector();
+    await this.updateScriptSelector();
+    await this.loadVersionTree();
+    await this.updateStorageUsageStatus();
   }
 
   /**
@@ -1117,370 +1054,6 @@ class SQLVersionApp {
   }
 
   /**
-   * 顯示導出對話框
-   */
-  showExportDialog() {
-    // v3 新增：初始化導出專案選擇器
-    const exportProjectSelect = document.getElementById('exportProjectSelect');
-    if (exportProjectSelect) {
-      const projects = this.projectManager.getProjects();
-      const currentProjectId = this.projectManager.getCurrentProjectId();
-      
-      exportProjectSelect.innerHTML = '';
-      for (const project of projects) {
-        const option = document.createElement('option');
-        option.value = project.projectId;
-        option.textContent = project.projectName;
-        if (project.projectId === currentProjectId) {
-          option.selected = true;
-        }
-        exportProjectSelect.appendChild(option);
-      }
-    }
-    
-    document.getElementById('exportModal').style.display = 'flex';
-  }
-
-  /**
-   * 執行導出（僅 JSON）
-   */
-  async performExport() {
-    try {
-      const includeTags = document.getElementById('exportTags').checked;
-      const includeComments = document.getElementById('exportComments').checked;
-      // v3 新增：獲取選定的專案
-      const exportProjectSelect = document.getElementById('exportProjectSelect');
-      const projectId = exportProjectSelect ? exportProjectSelect.value : null;
-
-      const { jsonContent, filename } = await this.importExportManager.exportToJSON({
-        includeTags,
-        includeComments,
-        projectId
-      });
-
-      this.importExportManager.downloadFile(jsonContent, `${filename}.json`, 'application/json');
-
-      alert('導出成功！(JSON)');
-      document.getElementById('exportModal').style.display = 'none';
-    } catch (error) {
-      alert('導出失敗：' + error.message);
-    }
-  }
-
-  /**
-   * 顯示導入對話框
-   */
-  showImportDialog() {
-    document.getElementById('importFileInput').click();
-  }
-
-  /**
-   * 處理導入檔案（僅 JSON）
-   */
-  async handleImportFile(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    try {
-      if (!file.name.endsWith('.json')) {
-        alert('請選擇 JSON 檔案');
-        event.target.value = '';
-        return;
-      }
-
-      const text = await file.text();
-      const result = await this.importExportManager.importFromJSON(text);
-      const importData = result.data;
-
-      // v3 新增：先讓使用者選擇目標專案
-      const targetProjectId = await this.showImportProjectSelector();
-      if (!targetProjectId) {
-        // 使用者取消
-        event.target.value = '';
-        return;
-      }
-
-      // 保存目標專案以供後續使用
-      this.pendingImportData = { importData, targetProjectId };
-
-      // 顯示完整 preview，讓使用者確認新增、覆蓋、跳過、合併數量後再寫入
-      await this.showConflictDialog(result, targetProjectId);
-    } catch (error) {
-      alert('導入失敗：' + error.message);
-    }
-
-    // 重置檔案輸入
-    event.target.value = '';
-  }
-
-  /**
-   * v3 新增：顯示導入目標專案選擇對話框
-   */
-  async showImportProjectSelector() {
-    return new Promise((resolve) => {
-      const modal = document.getElementById('importProjectModal');
-      const selector = document.getElementById('importTargetProject');
-
-      if (!modal || !selector) {
-        // 如果沒有 UI 元素，返回當前專案
-        resolve(this.projectManager.getCurrentProjectId());
-        return;
-      }
-
-      // 初始化專案選擇器
-      const projects = this.projectManager.getProjects();
-      const currentProjectId = this.projectManager.getCurrentProjectId();
-      
-      selector.innerHTML = '';
-      for (const project of projects) {
-        const option = document.createElement('option');
-        option.value = project.projectId;
-        option.textContent = project.projectName;
-        if (project.projectId === currentProjectId) {
-          option.selected = true;
-        }
-        selector.appendChild(option);
-      }
-
-      // 顯示對話框
-      modal.style.display = 'flex';
-
-      // 處理確認
-      const confirmBtn = document.getElementById('btnConfirmImportProject');
-      const closeBtn = document.getElementById('btnCloseImportProject');
-      const cancelBtn = document.getElementById('btnCancelImportProject');
-
-      const handleConfirm = () => {
-        const projectId = selector.value;
-        modal.style.display = 'none';
-        cleanup();
-        resolve(projectId);
-      };
-
-      const handleCancel = () => {
-        modal.style.display = 'none';
-        cleanup();
-        resolve(null);
-      };
-
-      const cleanup = () => {
-        confirmBtn.removeEventListener('click', handleConfirm);
-        closeBtn.removeEventListener('click', handleCancel);
-        cancelBtn.removeEventListener('click', handleCancel);
-      };
-
-      confirmBtn.addEventListener('click', handleConfirm);
-      closeBtn.addEventListener('click', handleCancel);
-      cancelBtn.addEventListener('click', handleCancel);
-    });
-  }
-
-  /**
-   * 顯示衝突確認對話框
-   */
-  async showConflictDialog(result, targetProjectId = null) {
-    const title = document.getElementById('conflictModalTitle');
-    const intro = document.getElementById('importConfirmIntro');
-    const strategyPanel = document.getElementById('conflictStrategyPanel');
-    const conflictList = document.getElementById('conflictList');
-    conflictList.innerHTML = '';
-
-    if (title) {
-      title.textContent = result.conflicts.length > 0 ? '導入衝突確認' : '導入確認';
-    }
-    if (intro) {
-      intro.textContent = result.conflicts.length > 0
-        ? '檢測到以下版本衝突，請選擇處理方式並確認導入影響摘要。'
-        : '未檢測到版本 ID 衝突，請確認導入影響摘要後再執行。';
-    }
-    if (strategyPanel) {
-      strategyPanel.hidden = result.conflicts.length === 0;
-    }
-
-    const defaultStrategy = document.querySelector('input[name="strategy"][value="skipAll"]');
-    if (defaultStrategy) defaultStrategy.checked = true;
-
-    for (const conflict of result.conflicts) {
-      const item = document.createElement('div');
-      item.className = 'conflict-item';
-      item.dataset.versionId = conflict.versionId;
-
-      const header = document.createElement('div');
-      header.className = 'conflict-header';
-      const type = document.createElement('span');
-      type.className = 'conflict-type';
-      type.textContent = conflict.type === 'version_exists' ? '版本 ID 重複' : '孤立版本';
-      const version = document.createElement('span');
-      version.className = 'conflict-version';
-      version.textContent = conflict.versionId;
-      header.appendChild(type);
-      header.appendChild(version);
-      item.appendChild(header);
-
-      const detail = document.createElement('div');
-      detail.className = 'conflict-detail';
-      if (conflict.type === 'version_exists') {
-        const local = document.createElement('p');
-        local.textContent = `本地版本：${new Date(conflict.local.timestamp).toLocaleString('zh-TW')}`;
-        const imported = document.createElement('p');
-        imported.textContent = `導入版本：${new Date(conflict.import.timestamp).toLocaleString('zh-TW')}`;
-        const same = document.createElement('p');
-        same.textContent = `內容一致：${conflict.contentMatch ? '是' : '否'}`;
-        const actions = document.createElement('div');
-        actions.className = 'conflict-actions';
-        for (const [value, label] of [['skip', '跳過'], ['overwrite', '覆蓋'], ['merge', '合併']]) {
-          const radioLabel = document.createElement('label');
-          radioLabel.className = 'radio-button';
-          const input = document.createElement('input');
-          input.type = 'radio';
-          input.name = `conflict_${conflict.versionId}`;
-          input.value = value;
-          input.checked = value === 'skip';
-          input.addEventListener('change', () => this.updateImportPreviewSummary());
-          const span = document.createElement('span');
-          span.textContent = label;
-          radioLabel.appendChild(input);
-          radioLabel.appendChild(span);
-          actions.appendChild(radioLabel);
-        }
-        detail.appendChild(local);
-        detail.appendChild(imported);
-        detail.appendChild(same);
-        detail.appendChild(actions);
-      } else {
-        const message = document.createElement('p');
-        message.textContent = conflict.message || '缺失父版本';
-        detail.appendChild(message);
-      }
-      item.appendChild(detail);
-      conflictList.appendChild(item);
-    }
-
-    // 保存導入數據供稍後使用
-    this.pendingImportData = {
-      importData: result.data,
-      targetProjectId: targetProjectId || this.projectManager.getCurrentProjectId()
-    };
-    await this.updateImportPreviewSummary();
-    document.getElementById('conflictModal').style.display = 'flex';
-  }
-
-  collectImportResolutions() {
-    const strategyEl = document.querySelector('input[name="strategy"]:checked');
-    const strategy = strategyEl ? strategyEl.value : 'skipAll';
-    const resolutions = {};
-
-    if (!this.pendingImportData?.importData?.versions) {
-      return resolutions;
-    }
-
-    if (strategy !== 'custom') {
-      for (const version of this.pendingImportData.importData.versions) {
-        resolutions[version.versionId] = strategy === 'skipAll' ? 'skip' :
-                                        strategy === 'overwriteAll' ? 'overwrite' :
-                                        'merge';
-      }
-      return resolutions;
-    }
-
-    const conflictItems = document.querySelectorAll('.conflict-item');
-    conflictItems.forEach((item) => {
-      const versionId = item.querySelector('.conflict-version').textContent;
-      const selected = item.querySelector(`input[name="conflict_${versionId}"]:checked`);
-      if (selected) {
-        resolutions[versionId] = selected.value;
-      }
-    });
-    return resolutions;
-  }
-
-  async updateImportPreviewSummary() {
-    const container = document.getElementById('importImpactSummary');
-    if (!container || !this.pendingImportData?.importData) return;
-
-    try {
-      const preview = await this.importExportManager.getImportPreview(this.pendingImportData.importData, {
-        targetProjectId: this.pendingImportData.targetProjectId,
-        resolutions: this.collectImportResolutions()
-      });
-
-      this.renderImpactSummary(container, '導入影響摘要', [
-        { label: 'SQL 腳本', value: `新增 ${preview.scripts.imported}、跳過 ${preview.scripts.skipped}` },
-        { label: '版本', value: `新增 ${preview.versions.imported}、覆蓋 ${preview.versions.overwritten}、合併 ${preview.versions.merged}、跳過 ${preview.versions.skipped}` },
-        { label: '版本衝突', value: `${preview.conflicts} 筆` },
-        { label: '孤立版本', value: `${preview.orphanVersions} 筆` }
-      ], { danger: preview.versions.overwritten > 0 });
-    } catch (error) {
-      this.renderImpactSummary(container, '導入影響摘要無法產生', [
-        { label: '錯誤', value: error.message }
-      ], { danger: true });
-    }
-  }
-
-  /**
-   * 確認導入
-   */
-  async confirmImport() {
-    const resolutions = this.collectImportResolutions();
-
-    try {
-      await this.performImport(this.pendingImportData, resolutions);
-    } catch (error) {
-      alert('導入失敗：' + error.message);
-    }
-  }
-
-  /**
-   * 執行導入
-   */
-  async performImport(importInfo, resolutions = {}) {
-    try {
-      // 支持兩種格式：
-      // 1. importInfo = { importData, targetProjectId }
-      // 2. importInfo = jsonData（舊格式，使用當前專案）
-      let jsonData, targetProjectId;
-
-      if (importInfo.importData) {
-        // v3 新格式
-        jsonData = importInfo.importData;
-        targetProjectId = importInfo.targetProjectId;
-      } else {
-        // 舊格式或只傳遞 jsonData
-        jsonData = importInfo;
-        targetProjectId = this.projectManager.getCurrentProjectId();
-      }
-
-      const results = await this.importExportManager.executeImport(jsonData, resolutions, targetProjectId);
-
-      let message = `導入完成！\n`;
-      if (results.scripts) {
-        message += `SQL 腳本：${results.scripts} 支\n`;
-      }
-      message += `匯入：${results.imported} 個版本\n`;
-      message += `覆蓋：${results.overwritten} 個版本\n`;
-      message += `合併：${results.merged} 個版本\n`;
-      message += `跳過：${results.skipped} 個版本`;
-
-      if (results.errors.length > 0) {
-        message += `\n錯誤：${results.errors.length} 個版本`;
-      }
-
-      alert(message);
-
-      // 關閉對話框
-      document.getElementById('conflictModal').style.display = 'none';
-
-      // 重新加載版本列表
-      await this.scriptManager.loadScriptsForCurrentProject();
-      await this.updateScriptSelector();
-      await this.loadVersionTree();
-      await this.updateStorageUsageStatus();
-    } catch (error) {
-      alert('導入失敗：' + error.message);
-    }
-  }
-
-  /**
    * 顯示標籤管理（暫不實現）
    */
   showTagsManagement() {
@@ -1698,372 +1271,8 @@ class SQLVersionApp {
     }
   }
 
-  // ========== 完整備份與還原功能 ==========
-
-  /**
-   * 顯示完整備份對話框
-   */
-  async showFullBackupDialog() {
-    try {
-      // 獲取統計資訊
-      const allProjects = await this.importExportManager._getAllProjects();
-      const allScripts = await this.importExportManager._getAllScripts();
-      const allVersions = await this.db.getAllVersions();
-      const allTags = await this.importExportManager._getAllTags();
-      const allComments = await this.importExportManager._getAllComments();
-
-      // 更新統計顯示
-      document.getElementById('statsProjects').textContent = allProjects.length;
-      const statsScripts = document.getElementById('statsScripts');
-      if (statsScripts) statsScripts.textContent = allScripts.length;
-      document.getElementById('statsVersions').textContent = allVersions.length;
-      document.getElementById('statsTags').textContent = allTags.length;
-      document.getElementById('statsComments').textContent = allComments.length;
-
-      // 顯示對話框
-      document.getElementById('fullBackupModal').style.display = 'flex';
-    } catch (error) {
-      console.error('載入統計資訊失敗:', error);
-      alert('載入統計資訊失敗：' + error.message);
-    }
-  }
-
-  /**
-   * 執行完整備份
-   */
-  async performFullBackup() {
-    try {
-      const includeTags = document.getElementById('backupIncludeTags').checked;
-      const includeComments = document.getElementById('backupIncludeComments').checked;
-      const includeMetadata = document.getElementById('backupIncludeMetadata').checked;
-
-      console.log('開始完整資料庫備份...');
-
-      const { jsonContent, filename } = await this.importExportManager.exportFullDatabase({
-        includeTags,
-        includeComments,
-        includeMetadata
-      });
-
-      this.importExportManager.downloadFile(jsonContent, filename, 'application/json');
-
-      console.log('✓ 完整備份完成');
-      alert('完整資料庫備份成功！');
-      
-      document.getElementById('fullBackupModal').style.display = 'none';
-    } catch (error) {
-      console.error('完整備份失敗:', error);
-      alert('完整備份失敗：' + error.message);
-    }
-  }
-
-  /**
-   * 顯示完整還原對話框
-   */
-  showFullRestoreDialog() {
-    // 觸發檔案選擇
-    document.getElementById('fullRestoreFileInput').click();
-  }
-
-  /**
-   * 處理完整還原檔案
-   */
-  async handleFullRestoreFile(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    try {
-      if (!file.name.endsWith('.json')) {
-        alert('請選擇 JSON 備份檔案');
-        event.target.value = '';
-        return;
-      }
-
-      console.log('正在讀取備份檔案...');
-      const text = await file.text();
-      const validation = await this.importExportManager.validateImportData(text, { requireFull: true });
-      const jsonData = validation.data;
-
-      // 顯示檔案資訊
-      const restoreFileInfo = document.getElementById('restoreFileInfo');
-      const restoreStats = document.getElementById('restoreStats');
-      restoreStats.innerHTML = '';
-      const statsGrid = document.createElement('div');
-      statsGrid.className = 'stats-grid';
-      const fileStats = [
-        ['匯出日期', jsonData.exportDate ? new Date(jsonData.exportDate).toLocaleString('zh-TW') : '未知'],
-        ['格式版本', jsonData.formatVersion],
-        ['專案數', validation.counts.projects],
-        ['SQL 腳本數', validation.counts.scripts],
-        ['版本數', validation.counts.versions],
-        ['標籤數', validation.counts.tags],
-        ['批註數', validation.counts.comments]
-      ];
-      for (const [label, value] of fileStats) {
-        const item = document.createElement('div');
-        const strong = document.createElement('strong');
-        strong.textContent = `${label}：`;
-        const span = document.createElement('span');
-        span.textContent = value;
-        item.appendChild(strong);
-        item.appendChild(span);
-        statsGrid.appendChild(item);
-      }
-      restoreStats.appendChild(statsGrid);
-      
-      restoreFileInfo.style.display = 'block';
-
-      // 保存資料供還原使用
-      this.pendingRestoreData = jsonData;
-      await this.updateFullRestorePreview();
-
-      // 顯示還原對話框
-      document.getElementById('fullRestoreModal').style.display = 'flex';
-    } catch (error) {
-      console.error('讀取備份檔案失敗:', error);
-      alert('讀取備份檔案失敗：' + error.message);
-    }
-
-    // 重置檔案輸入
-    event.target.value = '';
-  }
-
-  async updateFullRestorePreview() {
-    if (!this.pendingRestoreData) return;
-
-    const container = document.getElementById('restoreImpactSummary');
-    const strategyEl = document.querySelector('input[name="restoreStrategy"]:checked');
-    const strategy = strategyEl ? strategyEl.value : 'skip';
-    const clearExisting = document.getElementById('restoreClearExisting')?.checked || false;
-
-    try {
-      const preview = await this.importExportManager.getFullRestorePreview(this.pendingRestoreData, {
-        conflictStrategy: strategy,
-        clearExisting
-      });
-
-      const items = [];
-      if (preview.clearCounts) {
-        items.push({
-          label: '會先清除',
-          value: `專案 ${preview.clearCounts.projects}、SQL 腳本 ${preview.clearCounts.scripts}、版本 ${preview.clearCounts.versions}、標籤 ${preview.clearCounts.tags}、批註 ${preview.clearCounts.comments}`
-        });
-      }
-
-      items.push(
-        { label: '專案', value: `新增 ${preview.projects.imported}、覆蓋 ${preview.projects.overwritten}、跳過 ${preview.projects.skipped}` },
-        { label: 'SQL 腳本', value: `新增 ${preview.scripts.imported}、覆蓋 ${preview.scripts.overwritten}、跳過 ${preview.scripts.skipped}` },
-        { label: '版本', value: `新增 ${preview.versions.imported}、覆蓋 ${preview.versions.overwritten}、合併 ${preview.versions.merged}、跳過 ${preview.versions.skipped}` },
-        { label: '標籤', value: `新增 ${preview.tags.imported}` },
-        { label: '批註', value: `新增 ${preview.comments.imported}` },
-        { label: '版本衝突', value: `${preview.conflicts.length} 筆` }
-      );
-
-      this.renderImpactSummary(container, '還原影響摘要', items, { danger: clearExisting });
-    } catch (error) {
-      this.renderImpactSummary(container, '還原檔案驗證失敗', [
-        { label: '錯誤', value: error.message }
-      ], { danger: true });
-    }
-  }
-
-  /**
-   * 執行完整還原
-   */
-  async performFullRestore() {
-    if (!this.pendingRestoreData) {
-      alert('請先選擇備份檔案');
-      return;
-    }
-
-    const strategy = document.querySelector('input[name="restoreStrategy"]:checked').value;
-    const clearExisting = document.getElementById('restoreClearExisting').checked;
-    let preview;
-
-    try {
-      preview = await this.importExportManager.getFullRestorePreview(this.pendingRestoreData, {
-        conflictStrategy: strategy,
-        clearExisting
-      });
-      await this.updateFullRestorePreview();
-    } catch (error) {
-      alert('還原檔案驗證失敗：' + error.message);
-      return;
-    }
-
-    // 如果選擇清空現有資料，需要二次確認
-    if (clearExisting) {
-      const confirmed = await this.confirmDangerAction({
-        title: '清空後還原',
-        message: '您選擇了「清空所有現有資料」選項。建議確認已有完整備份後再繼續。',
-        confirmText: '清空並還原',
-        items: [
-          { label: '將清除', value: `專案 ${preview.clearCounts.projects}、SQL 腳本 ${preview.clearCounts.scripts}、版本 ${preview.clearCounts.versions}、標籤 ${preview.clearCounts.tags}、批註 ${preview.clearCounts.comments}` }
-        ]
-      });
-
-      if (!confirmed) {
-        return;
-      }
-    }
-
-    try {
-      console.log('開始完整資料庫還原...');
-      console.log(`  - 衝突策略: ${strategy}`);
-      console.log(`  - 清空現有資料: ${clearExisting}`);
-
-      const results = await this.importExportManager.importFullDatabase(this.pendingRestoreData, {
-        conflictStrategy: strategy,
-        clearExisting: clearExisting
-      });
-
-      // 組合結果訊息
-      let message = '完整資料庫還原完成！\n\n';
-      message += `專案：新增 ${results.projects.imported}, 覆蓋 ${results.projects.overwritten}, 跳過 ${results.projects.skipped}\n`;
-      if (results.scripts) {
-        message += `SQL 腳本：新增 ${results.scripts.imported}, 覆蓋 ${results.scripts.overwritten}, 跳過 ${results.scripts.skipped}\n`;
-      }
-      message += `版本：新增 ${results.versions.imported}, 覆蓋 ${results.versions.overwritten}, 合併 ${results.versions.merged}, 跳過 ${results.versions.skipped}\n`;
-      message += `標籤：新增 ${results.tags.imported}, 跳過 ${results.tags.skipped}\n`;
-      message += `批註：新增 ${results.comments.imported}, 跳過 ${results.comments.skipped}`;
-
-      if (results.metadata.imported > 0) {
-        message += `\n元數據：新增 ${results.metadata.imported}`;
-      }
-
-      // 檢查錯誤
-      const totalErrors = 
-        results.projects.errors.length +
-        (results.scripts?.errors.length || 0) +
-        results.versions.errors.length +
-        results.tags.errors.length +
-        results.comments.errors.length +
-        results.metadata.errors.length;
-
-      if (totalErrors > 0) {
-        message += `\n\n⚠️ 發生 ${totalErrors} 個錯誤`;
-        console.warn('還原錯誤詳情:', results);
-      }
-
-      alert(message);
-
-      // 關閉對話框
-      document.getElementById('fullRestoreModal').style.display = 'none';
-
-      // 清除暫存資料
-      this.pendingRestoreData = null;
-
-      // 重新載入專案清單（確保還原後的專案出現在下拉選單）
-      await this.projectManager.loadProjects();
-
-      // 若當前專案已不存在，切換到第一個可用專案
-      const projects = this.projectManager.getProjects();
-      if (projects.length > 0) {
-        const currentId = this.projectManager.getCurrentProjectId();
-        if (!projects.some(p => p.projectId === currentId)) {
-          await this.projectManager.setCurrentProject(projects[0].projectId);
-        }
-      }
-      await this.scriptManager.loadScriptsForCurrentProject();
-
-      // 重新初始化專案選擇器
-      await this.updateProjectSelector();
-      await this.updateScriptSelector();
-
-      // 重新加載版本列表
-      await this.loadVersionTree();
-      await this.updateStorageUsageStatus();
-
-      console.log('✓ 完整還原完成並已重新載入');
-    } catch (error) {
-      console.error('完整還原失敗:', error);
-      alert('完整還原失敗：' + error.message);
-    }
-  }
-
-  /**
-   * 初始化 Monaco Editor
-   */
-  async initMonacoEditor() {
-    return new Promise((resolve, reject) => {
-      require(['vs/editor/editor.main'], () => {
-        try {
-          // 初始化主編輯器
-          this.monacoEditor = monaco.editor.create(document.getElementById('monacoEditor'), {
-            value: '',
-            language: 'sql',
-            theme: this.currentTheme === 'dark' ? 'vs-dark' : 'vs',
-            automaticLayout: true,
-            minimap: { enabled: true },
-            fontSize: 14,
-            lineNumbers: 'on',
-            roundedSelection: true,
-            scrollBeyondLastLine: false,
-            readOnly: false,
-            cursorStyle: 'line',
-            wordWrap: 'on',
-            tabSize: 2
-          });
-
-          // 監聽內容變化更新統計
-          this.monacoEditor.onDidChangeModelContent(() => {
-            this.updateEditorStats();
-            this.updateStatusBar();
-          });
-
-          // 監聽游標位置變化
-          this.monacoEditor.onDidChangeCursorPosition(() => {
-            this.updateStatusBar();
-          });
-
-          // 監聽選擇變化
-          this.monacoEditor.onDidChangeCursorSelection(() => {
-            this.updateStatusBar();
-          });
-
-          console.log('Monaco Editor 初始化成功');
-          resolve();
-        } catch (error) {
-          console.error('Monaco Editor 初始化失敗:', error);
-          reject(error);
-        }
-      });
-    });
-  }
-
-  /**
-   * 更新編輯器統計信息
-   */
   updateEditorStats() {
-    if (this.monacoEditor) {
-      const model = this.monacoEditor.getModel();
-      if (model) {
-        const lineCount = model.getLineCount();
-        const charCount = model.getValue().length;
-        document.getElementById('lineCount').textContent = lineCount;
-        document.getElementById('charCount').textContent = charCount;
-      }
-    }
-  }
-
-  /**
-   * 更新狀態欄
-   */
-  updateStatusBar() {
-    if (this.monacoEditor) {
-      const position = this.monacoEditor.getPosition();
-      const selection = this.monacoEditor.getSelection();
-      
-      document.getElementById('statusPosition').textContent = `行 ${position.lineNumber}, 列 ${position.column}`;
-      
-      if (selection && !selection.isEmpty()) {
-        const model = this.monacoEditor.getModel();
-        const selectedText = model.getValueInRange(selection);
-        document.getElementById('statusSelection').textContent = `已選擇 ${selectedText.length}`;
-      } else {
-        document.getElementById('statusSelection').textContent = '已選擇 0';
-      }
-    }
+    this.editorController.updateEditorStats();
   }
 
   /**
@@ -2229,404 +1438,6 @@ class SQLVersionApp {
     return `${value.toFixed(decimals)} ${units[unitIndex]}`;
   }
 
-  /**
-   * 下載目前編輯器中的 SQL 內容。
-   */
-  downloadCurrentSQL() {
-    if (!this.monacoEditor) return;
-
-    const sql = this.monacoEditor.getValue();
-    if (!sql.trim()) {
-      alert('編輯器內容為空');
-      return;
-    }
-
-    const currentScript = this.scriptManager?.getCurrentScript();
-    const rawName = currentScript?.scriptName || 'sql_script';
-    const safeBaseName = rawName
-      .replace(/[\\/:*?"<>|]/g, '_')
-      .replace(/\s+/g, ' ')
-      .trim() || 'sql_script';
-    const filename = safeBaseName.toLowerCase().endsWith('.sql')
-      ? safeBaseName
-      : `${safeBaseName}.sql`;
-
-    this.importExportManager.downloadFile(sql, filename, 'text/sql;charset=utf-8');
-  }
-
-  /**
-   * 格式化 SQL（使用 sql-formatter）
-   */
-  formatSQL() {
-    if (!this.monacoEditor) return;
-    
-    try {
-      const sql = this.monacoEditor.getValue();
-      if (!sql.trim()) {
-        alert('編輯器內容為空');
-        return;
-      }
-
-      // 使用 sql-formatter 進行格式化
-      const formatted = sqlFormatter.format(sql, {
-        language: 'mysql',
-        indent: '  ',
-        uppercase: true,
-        linesBetweenQueries: 2
-      });
-
-      this.monacoEditor.setValue(formatted);
-      this.monacoEditor.getAction('editor.action.formatDocument').run();
-    } catch (error) {
-      console.error('格式化失敗:', error);
-      alert('SQL 格式化失敗：' + error.message);
-    }
-  }
-
-  /**
-   * 加載主題設定
-   */
-  async loadTheme() {
-    try {
-      const prefs = await this.db.getMetadata('userPreferences');
-      this.currentTheme = prefs?.value?.theme || 'light';
-      this.applyTheme(this.currentTheme);
-    } catch (error) {
-      console.warn('加載主題設定失敗:', error);
-      this.applyTheme('light');
-    }
-  }
-
-  /**
-   * 應用主題
-   */
-  applyTheme(theme) {
-    this.currentTheme = theme;
-    document.documentElement.setAttribute('data-theme', theme);
-    
-    // 更新 Monaco Editor 主題
-    if (this.monacoEditor) {
-      monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
-    }
-    if (this.leftMonacoEditor) {
-      monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
-    }
-    if (this.rightMonacoEditor) {
-      monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
-    }
-    
-    // 更新主題按鈕文字
-    const btn = document.getElementById('btnThemeToggle');
-    const icon = btn.querySelector('.icon');
-    const text = btn.querySelector('span:not(.icon)');
-    
-    if (theme === 'dark') {
-      icon.textContent = '☀️';
-      text.textContent = '淺色模式';
-    } else {
-      icon.textContent = '🌙';
-      text.textContent = '深色模式';
-    }
-  }
-
-  /**
-   * 切換主題
-   */
-  async toggleTheme() {
-    const newTheme = this.currentTheme === 'light' ? 'dark' : 'light';
-    this.applyTheme(newTheme);
-    
-    // 保存到 IndexedDB
-    try {
-      const prefs = await this.db.getMetadata('userPreferences') || { key: 'userPreferences', value: {} };
-      prefs.value.theme = newTheme;
-      await this.db.saveMetadata('userPreferences', prefs.value);
-    } catch (error) {
-      console.error('保存主題設定失敗:', error);
-    }
-  }
-
-  /**
-   * 切換比較模式
-   */
-  async toggleCompareMode() {
-    this.isSplitView = !this.isSplitView;
-    
-    const singleCard = document.getElementById('singleEditorCard');
-    const splitCard = document.getElementById('splitEditorCard');
-    
-    if (this.isSplitView) {
-      // 進入分割視圖
-      singleCard.style.display = 'none';
-      splitCard.style.display = 'block';
-      
-      // 初始化分割編輯器（如果尚未初始化）
-      if (!this.leftMonacoEditor || !this.rightMonacoEditor) {
-        await this.initSplitEditors();
-      }
-      
-      // 載入當前版本和前一版本
-      await this.loadDefaultComparison();
-    } else {
-      // 返回單一視圖
-      singleCard.style.display = 'block';
-      splitCard.style.display = 'none';
-    }
-  }
-
-  /**
-   * 初始化分割編輯器
-   */
-  async initSplitEditors() {
-    return new Promise((resolve) => {
-      require(['vs/editor/editor.main'], () => {
-        const editorOptions = {
-          language: 'sql',
-          theme: this.currentTheme === 'dark' ? 'vs-dark' : 'vs',
-          automaticLayout: true,
-          minimap: { enabled: false },
-          fontSize: 14,
-          lineNumbers: 'on',
-          readOnly: true,
-          scrollBeyondLastLine: false,
-          wordWrap: 'on',
-          tabSize: 2
-        };
-
-        this.leftMonacoEditor = monaco.editor.create(
-          document.getElementById('leftMonacoEditor'),
-          { ...editorOptions, value: '' }
-        );
-
-        this.rightMonacoEditor = monaco.editor.create(
-          document.getElementById('rightMonacoEditor'),
-          { ...editorOptions, value: '' }
-        );
-
-        // 綁定同步捲動
-        this.setupSyncScroll();
-
-        console.log('分割編輯器初始化成功');
-        resolve();
-      });
-    });
-  }
-
-  /**
-   * 設置同步捲動
-   */
-  setupSyncScroll() {
-    this.leftMonacoEditor.onDidScrollChange(() => {
-      if (this.isSyncScroll && this.rightMonacoEditor) {
-        this.rightMonacoEditor.setScrollPosition({
-          scrollTop: this.leftMonacoEditor.getScrollTop()
-        });
-      }
-    });
-
-    this.rightMonacoEditor.onDidScrollChange(() => {
-      if (this.isSyncScroll && this.leftMonacoEditor) {
-        this.leftMonacoEditor.setScrollPosition({
-          scrollTop: this.rightMonacoEditor.getScrollTop()
-        });
-      }
-    });
-  }
-
-  /**
-   * 切換同步捲動
-   */
-  toggleSyncScroll() {
-    this.isSyncScroll = !this.isSyncScroll;
-    const btn = document.getElementById('btnSyncScroll');
-    btn.style.opacity = this.isSyncScroll ? '1' : '0.5';
-    btn.title = this.isSyncScroll ? '同步捲動（已啟用）' : '同步捲動（已停用）';
-  }
-
-  /**
-   * 載入預設比較（當前版本 vs 前一版本）
-   */
-  async loadDefaultComparison() {
-    const versions = await this.versionManager.getAllVersions();
-    if (versions.length < 2) {
-      alert('至少需要兩個版本才能進行比較');
-      return;
-    }
-
-    // 更新版本選擇下拉選單
-    await this.updateVersionSelects();
-
-    // 載入最新兩個版本
-    await this.loadVersionToSplit('left', versions[1].versionId);
-    await this.loadVersionToSplit('right', versions[0].versionId);
-  }
-
-  /**
-   * 更新版本選擇下拉選單
-   */
-  async updateVersionSelects() {
-    const versions = await this.versionManager.getAllVersions();
-    const leftSelect = document.getElementById('leftVersionSelect');
-    const rightSelect = document.getElementById('rightVersionSelect');
-
-    leftSelect.innerHTML = '<option value="">選擇版本...</option>';
-    rightSelect.innerHTML = '<option value="">選擇版本...</option>';
-
-    versions.forEach(v => {
-      const option = `<option value="${v.versionId}">${v.versionId.substring(0, 8)} - ${v.label}</option>`;
-      leftSelect.innerHTML += option;
-      rightSelect.innerHTML += option;
-    });
-  }
-
-  /**
-   * 載入版本到分割視圖
-   */
-  async loadVersionToSplit(side, versionId) {
-    if (!versionId) return;
-
-    try {
-      const content = await this.versionManager.getVersionContent(versionId);
-      const version = await this.versionManager.db.getVersion(versionId);
-
-      if (side === 'left') {
-        this.leftMonacoEditor.setValue(content);
-        document.getElementById('leftVersionLabel').textContent = version.label || '版本 A';
-        document.getElementById('leftLineCount').textContent = content.split('\n').length;
-        document.getElementById('leftVersionSelect').value = versionId;
-      } else {
-        this.rightMonacoEditor.setValue(content);
-        document.getElementById('rightVersionLabel').textContent = version.label || '版本 B';
-        document.getElementById('rightLineCount').textContent = content.split('\n').length;
-        document.getElementById('rightVersionSelect').value = versionId;
-      }
-
-      // 計算差異
-      await this.calculateSplitDiff();
-    } catch (error) {
-      console.error('載入版本失敗:', error);
-      alert('載入版本失敗：' + error.message);
-    }
-  }
-
-  /**
-   * 計算分割視圖的差異
-   */
-  async calculateSplitDiff() {
-    const leftId = document.getElementById('leftVersionSelect').value;
-    const rightId = document.getElementById('rightVersionSelect').value;
-
-    if (!leftId || !rightId) return;
-
-    try {
-      const comparison = await this.versionManager.compareVersions(leftId, rightId);
-      
-      document.getElementById('diffAdded').textContent = comparison.stats.linesAdded;
-      document.getElementById('diffRemoved').textContent = comparison.stats.linesRemoved;
-
-      // 使用 Monaco Editor 的 Decorations API 高亮差異
-      this.highlightDifferences(comparison.lineDiffs);
-    } catch (error) {
-      console.error('計算差異失敗:', error);
-    }
-  }
-
-  /**
-   * 高亮差異行
-   */
-  highlightDifferences(lineDiffs) {
-    if (!this.leftMonacoEditor || !this.rightMonacoEditor) return;
-
-    const leftDecorations = [];
-    const rightDecorations = [];
-
-    lineDiffs.forEach((diff, index) => {
-      const lineNumber = index + 1;
-
-      if (diff.type === 'removed') {
-        leftDecorations.push({
-          range: new monaco.Range(lineNumber, 1, lineNumber, 1),
-          options: {
-            isWholeLine: true,
-            className: 'diff-highlight-removed'
-          }
-        });
-      } else if (diff.type === 'added') {
-        rightDecorations.push({
-          range: new monaco.Range(lineNumber, 1, lineNumber, 1),
-          options: {
-            isWholeLine: true,
-            className: 'diff-highlight-added'
-          }
-        });
-      }
-    });
-
-    this.leftMonacoEditor.deltaDecorations([], leftDecorations);
-    this.rightMonacoEditor.deltaDecorations([], rightDecorations);
-  }
-
-  /**
-   * 關閉分割視圖
-   */
-  closeSplitView() {
-    this.isSplitView = false;
-    document.getElementById('singleEditorCard').style.display = 'block';
-    document.getElementById('splitEditorCard').style.display = 'none';
-  }
-
-  /**
-   * 與當前版本比較（右鍵選單觸發）
-   */
-  async compareWithCurrent(selectedVersionId) {
-    // 進入分割視圖
-    this.isSplitView = true;
-    document.getElementById('singleEditorCard').style.display = 'none';
-    document.getElementById('splitEditorCard').style.display = 'block';
-
-    // 初始化分割編輯器（如果尚未初始化）
-    if (!this.leftMonacoEditor || !this.rightMonacoEditor) {
-      await this.initSplitEditors();
-    }
-
-    await this.updateVersionSelects();
-
-    // 左側載入選中的版本，右側載入當前編輯器內容
-    await this.loadVersionToSplit('left', selectedVersionId);
-    
-    // 右側顯示當前編輯器內容
-    const currentContent = this.monacoEditor.getValue();
-    this.rightMonacoEditor.setValue(currentContent);
-    document.getElementById('rightVersionLabel').textContent = '當前編輯器';
-    document.getElementById('rightLineCount').textContent = currentContent.split('\n').length;
-    document.getElementById('rightVersionSelect').value = '';
-  }
-
-  /**
-   * 處理鍵盤快捷鍵
-   */
-  handleKeyboardShortcuts(e) {
-    // Ctrl+S - 保存版本
-    if (e.ctrlKey && e.key === 's') {
-      e.preventDefault();
-      this.showSaveVersionDialog();
-    }
-    
-    // Ctrl+Shift+F - 格式化
-    if (e.ctrlKey && e.shiftKey && e.key === 'F') {
-      e.preventDefault();
-      this.formatSQL();
-    }
-    
-    // Ctrl+D - 切換比較模式
-    if (e.ctrlKey && e.key === 'd') {
-      e.preventDefault();
-      this.toggleCompareMode();
-    }
-    
-    // Ctrl+F - 搜尋（使用 Monaco 內建）
-    // Monaco Editor 自動處理，不需要額外代碼
-  }
 }
 
 // 應用初始化
