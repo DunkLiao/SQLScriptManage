@@ -321,8 +321,11 @@ class EditorController {
   }
 
   async loadDefaultComparison() {
-    const versions = await this.versionManager.getAllVersions();
+    this.setSplitBusy(true, '載入比較版本...');
+    const page = await this.versionManager.getVersionPage({ limit: 2 });
+    const versions = page.versions;
     if (versions.length < 2) {
+      this.setSplitBusy(false);
       this.onError('至少需要兩個版本才能進行比較');
       return;
     }
@@ -330,16 +333,36 @@ class EditorController {
     await this.updateVersionSelects();
     await this.loadVersionToSplit('left', versions[1].versionId);
     await this.loadVersionToSplit('right', versions[0].versionId);
+    this.setSplitBusy(false);
   }
 
   async updateVersionSelects() {
-    const versions = await this.versionManager.getAllVersions();
+    const versions = await this.loadVersionOptions();
     const leftSelect = document.getElementById('leftVersionSelect');
     const rightSelect = document.getElementById('rightVersionSelect');
     if (!leftSelect || !rightSelect) return;
 
     this.replaceVersionOptions(leftSelect, versions);
     this.replaceVersionOptions(rightSelect, versions);
+  }
+
+  async loadVersionOptions() {
+    const versions = [];
+    let beforeTimestamp = Number.MAX_SAFE_INTEGER;
+    let hasMore = true;
+
+    while (hasMore) {
+      const page = await this.versionManager.getVersionPage({
+        limit: 200,
+        beforeTimestamp
+      });
+      versions.push(...page.versions);
+      hasMore = page.hasMore;
+      beforeTimestamp = page.nextCursor?.beforeTimestamp;
+      if (!beforeTimestamp) break;
+    }
+
+    return versions;
   }
 
   replaceVersionOptions(select, versions) {
@@ -362,6 +385,7 @@ class EditorController {
     if (!versionId) return;
 
     try {
+      this.setSplitBusy(true, '載入版本內容...');
       const content = await this.versionManager.getVersionContent(versionId);
       const version = await this.versionManager.db.getVersion(versionId);
 
@@ -381,6 +405,8 @@ class EditorController {
     } catch (error) {
       console.error('載入版本失敗:', error);
       this.onError('載入版本失敗：' + error.message);
+    } finally {
+      this.setSplitBusy(false);
     }
   }
 
@@ -390,12 +416,15 @@ class EditorController {
     if (!leftId || !rightId) return;
 
     try {
+      this.setSplitBusy(true, '計算差異...');
       const comparison = await this.versionManager.compareVersions(leftId, rightId);
       document.getElementById('diffAdded').textContent = comparison.stats.linesAdded;
       document.getElementById('diffRemoved').textContent = comparison.stats.linesRemoved;
       this.highlightDifferences(comparison.lineDiffs);
     } catch (error) {
       console.error('計算差異失敗:', error);
+    } finally {
+      this.setSplitBusy(false);
     }
   }
 
@@ -405,10 +434,10 @@ class EditorController {
     const leftDecorations = [];
     const rightDecorations = [];
 
-    lineDiffs.forEach((diff, index) => {
+    lineDiffs.forEach(([op], index) => {
       const lineNumber = index + 1;
 
-      if (diff.type === 'removed') {
+      if (op === -1) {
         leftDecorations.push({
           range: new monaco.Range(lineNumber, 1, lineNumber, 1),
           options: {
@@ -416,7 +445,7 @@ class EditorController {
             className: 'diff-highlight-removed'
           }
         });
-      } else if (diff.type === 'added') {
+      } else if (op === 1) {
         rightDecorations.push({
           range: new monaco.Range(lineNumber, 1, lineNumber, 1),
           options: {
@@ -454,6 +483,13 @@ class EditorController {
     document.getElementById('rightVersionLabel').textContent = '當前編輯器';
     document.getElementById('rightLineCount').textContent = currentContent.split('\n').length;
     document.getElementById('rightVersionSelect').value = '';
+  }
+
+  setSplitBusy(isBusy, message = '') {
+    const splitCard = document.getElementById('splitEditorCard');
+    if (!splitCard) return;
+    splitCard.dataset.loading = isBusy ? 'true' : 'false';
+    splitCard.dataset.loadingMessage = message;
   }
 
   handleKeyboardShortcuts(event) {

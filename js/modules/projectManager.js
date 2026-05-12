@@ -204,15 +204,17 @@ class ProjectManager {
    * 獲取專案的版本統計
    */
   async getProjectStats(projectId) {
-    const versions = await this.db.getVersionsByProject(projectId);
-    const totalSize = versions.reduce((sum, v) => sum + JSON.stringify(v).length, 0);
+    const [totalVersions, latestVersion] = await Promise.all([
+      this.db.getVersionCountByProject(projectId),
+      this.db.getLatestVersionByProject(projectId)
+    ]);
 
     return {
       projectId,
-      totalVersions: versions.length,
-      totalSize,
+      totalVersions,
+      totalSize: null,
       rootVersionId: this.getRootVersionId(projectId),
-      latestVersionId: versions.length > 0 ? versions[0].versionId : null
+      latestVersionId: latestVersion?.versionId || null
     };
   }
 }

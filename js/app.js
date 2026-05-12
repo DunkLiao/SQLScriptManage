@@ -571,9 +571,16 @@ class SQLVersionApp {
       await this.projectManager.loadProjects();
       const projects = this.projectManager.getProjects();
       if (projects.length > 0) {
+        const savedProject = await this.db.getMetadata('currentProjectId');
+        const savedProjectId = savedProject?.value;
         const currentId = this.projectManager.getCurrentProjectId();
-        if (!projects.some(project => project.projectId === currentId)) {
-          await this.projectManager.setCurrentProject(projects[0].projectId);
+        const nextProjectId = projects.some(project => project.projectId === savedProjectId)
+          ? savedProjectId
+          : projects.some(project => project.projectId === currentId)
+            ? currentId
+            : projects[0].projectId;
+        if (nextProjectId !== currentId) {
+          await this.projectManager.setCurrentProject(nextProjectId);
         }
       }
     }
@@ -831,7 +838,7 @@ class SQLVersionApp {
   /**
    * 顯示比對對話框
    */
-  showCompareDialog() {
+  async showCompareDialog() {
     const compareFrom = document.getElementById('compareFrom');
     const compareTo = document.getElementById('compareTo');
     
@@ -840,10 +847,34 @@ class SQLVersionApp {
       return;
     }
 
-    // 填充版本選項
-    versionManager.getAllVersions().then(versions => {
-      compareFrom.innerHTML = '<option value="">選擇版本...</option>';
-      compareTo.innerHTML = '<option value="">選擇版本...</option>';
+    try {
+      const versions = [];
+      let beforeTimestamp = Number.MAX_SAFE_INTEGER;
+      let hasMore = true;
+
+      while (hasMore) {
+        const page = await this.versionManager.getVersionPage({
+          limit: 200,
+          beforeTimestamp
+        });
+        versions.push(...page.versions);
+        hasMore = page.hasMore;
+        beforeTimestamp = page.nextCursor?.beforeTimestamp;
+        if (!beforeTimestamp) break;
+      }
+
+      compareFrom.replaceChildren();
+      compareTo.replaceChildren();
+
+      const fromPlaceholder = document.createElement('option');
+      fromPlaceholder.value = '';
+      fromPlaceholder.textContent = '選擇版本...';
+      compareFrom.appendChild(fromPlaceholder);
+
+      const toPlaceholder = document.createElement('option');
+      toPlaceholder.value = '';
+      toPlaceholder.textContent = '選擇版本...';
+      compareTo.appendChild(toPlaceholder);
 
       for (const version of versions) {
         const optFrom = document.createElement('option');
@@ -867,7 +898,10 @@ class SQLVersionApp {
           compareTo.value = this.selectedVersionId;
         }
       }
-    });
+    } catch (error) {
+      this.showAlert('載入比對版本失敗：' + error.message, { title: '載入失敗', kind: 'danger' });
+      return;
+    }
 
     const compareModal = document.getElementById('compareModal');
     if (compareModal) {

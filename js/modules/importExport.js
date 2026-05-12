@@ -825,9 +825,11 @@ class ImportExportManager {
 
     const projectIds = new Set(localProjects.map(project => project.projectId));
     const scriptIds = new Set(localScripts.map(script => script.scriptId));
+    const scriptIdMap = new Map();
     const scriptNames = new Map();
     for (const script of localScripts) {
       scriptNames.set(`${script.projectId}\u0000${script.scriptName}`, script);
+      scriptIdMap.set(script.scriptId, script.scriptId);
     }
     const versionMap = new Map(localVersions.map(version => [version.versionId, version]));
 
@@ -857,6 +859,7 @@ class ImportExportManager {
     for (const script of jsonData.scripts || []) {
       const sameNameScript = scriptNames.get(`${script.projectId}\u0000${script.scriptName}`);
       if (scriptIds.has(script.scriptId)) {
+        scriptIdMap.set(script.scriptId, script.scriptId);
         if (conflictStrategy === 'overwrite') {
           scriptOps.push({ type: 'put', record: script });
           results.scripts.overwritten++;
@@ -864,6 +867,7 @@ class ImportExportManager {
           results.scripts.skipped++;
         }
       } else if (sameNameScript) {
+        scriptIdMap.set(script.scriptId, sameNameScript.scriptId);
         if (conflictStrategy === 'overwrite') {
           scriptOps.push({ type: 'put', record: { ...script, scriptId: sameNameScript.scriptId } });
           results.scripts.overwritten++;
@@ -873,6 +877,7 @@ class ImportExportManager {
       } else {
         scriptOps.push({ type: 'add', record: script });
         scriptIds.add(script.scriptId);
+        scriptIdMap.set(script.scriptId, script.scriptId);
         scriptNames.set(`${script.projectId}\u0000${script.scriptName}`, script);
         results.scripts.imported++;
       }
@@ -919,6 +924,9 @@ class ImportExportManager {
     for (const importVersion of jsonData.versions || []) {
       try {
         const versionRecord = await this._normalizeImportedVersionRecord(importVersion);
+        if (versionRecord.scriptId && scriptIdMap.has(versionRecord.scriptId)) {
+          versionRecord.scriptId = scriptIdMap.get(versionRecord.scriptId);
+        }
         if (!versionRecord.scriptId) {
           versionRecord.scriptId = ensureDefaultScriptRecord(versionRecord.projectId).scriptId;
         }
@@ -951,7 +959,17 @@ class ImportExportManager {
 
     for (const tag of jsonData.tags || []) tagOps.push(tag);
     for (const comment of jsonData.comments || []) commentOps.push(comment);
-    for (const meta of jsonData.metadata || []) metadataOps.push(meta);
+    for (const meta of jsonData.metadata || []) {
+      const normalizedMeta = { ...meta };
+      if (
+        typeof normalizedMeta.key === 'string' &&
+        normalizedMeta.key.startsWith('currentScriptId:') &&
+        scriptIdMap.has(normalizedMeta.value)
+      ) {
+        normalizedMeta.value = scriptIdMap.get(normalizedMeta.value);
+      }
+      metadataOps.push(normalizedMeta);
+    }
 
     await this._writeFullImportBatch({
       projectOps,

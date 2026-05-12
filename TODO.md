@@ -40,11 +40,11 @@
 
 ## 中優先：效能與大量資料
 
-- [ ] 版本列表改為分頁或 cursor lazy load，避免大量版本一次載入。
-- [ ] 減少資料層不必要的 `getAll()` 使用。
-- [ ] 大檔案 diff 顯示 loading 狀態。
-- [ ] 評估將大檔案 diff 移到 Web Worker，避免 UI 卡住。
-- [ ] 延遲載入 split diff editor，降低初始頁面載入成本。
+- [x] 版本列表改為分頁或 cursor lazy load，避免大量版本一次載入。
+- [x] 減少資料層不必要的 `getAll()` 使用。
+- [x] 大檔案 diff 顯示 loading 狀態。
+- [x] 評估將大檔案 diff 移到 Web Worker，避免 UI 卡住。
+- [x] 延遲載入 split diff editor，降低初始頁面載入成本。
 
 ## 中優先：安全與維護
 
@@ -71,6 +71,9 @@
 - [x] 2026-05-11：版本詳情與 `diff.html` 可正常顯示使用者輸入的標籤、作者、描述與 SQL 腳本名稱。
 - [x] 2026-05-11：`diff.html` 顯示版本標籤、作者、時間與 SQL 腳本名稱。
 - [x] 2026-05-12：保存版本對話框顯示與上一版相比的新增/刪除行數，並與保存後版本統計一致。
+- [x] 2026-05-12：使用 `test-data/performance-large-backup.json` 還原 180 個版本後，版本列表可分頁載入並正常顯示「載入更多」。
+- [x] 2026-05-12：使用 `diff.html?from=perf_v_179&to=perf_v_180` 驗證約 1 MB SQL 大檔 diff，loading 狀態與 Web Worker 比對流程正常。
+- [x] 2026-05-12：完整還原覆蓋同名 SQL 腳本時，版本會 remap 到實際保留的 `scriptId`，還原後 `main` 版本列表可正常顯示。
 - [ ] 建立專案、SQL 腳本、版本後完整備份。
 - [ ] 使用完整備份還原，確認專案、腳本、版本、標籤、批註可正常回來。
 - [ ] 在已有資料下還原同一份備份，測試 `skip`、`overwrite`、`merge` 三種策略。

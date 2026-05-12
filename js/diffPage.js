@@ -7,6 +7,8 @@ class DiffPage {
     this.db = null;
     this.ready = false;
     this.params = new URLSearchParams(window.location.search);
+    this.workerDiffThreshold = 250000;
+    this.workerLineThreshold = 8000;
   }
 
   async init() {
@@ -41,7 +43,7 @@ class DiffPage {
       return;
     }
 
-    this.setLoading(true);
+    this.setLoading(true, '載入版本內容...');
 
     try {
       const ignoreWs = document.getElementById('toggleWhitespace').checked;
@@ -52,12 +54,14 @@ class DiffPage {
       const versionFrom = await this.db.getVersion(from);
       const versionTo = await this.db.getVersion(to);
 
-      const normalizedFrom = this.normalize(contentFrom, { ignoreWs, ignoreCase });
-      const normalizedTo = this.normalize(contentTo, { ignoreWs, ignoreCase });
+      this.setLoading(true, this.shouldUseWorker(contentFrom, contentTo)
+        ? '大檔案差異計算中...'
+        : '計算差異中...');
+      const comparison = await this.computeDiff(contentFrom, contentTo, { ignoreWs, ignoreCase });
 
-      const comparison = diffEngine.computeDiff(normalizedFrom, normalizedTo);
       await this.renderMeta(versionFrom, versionTo, comparison.stats);
-      this.renderTable(comparison.lineDiffs);
+      this.setLoading(true, '渲染差異結果...');
+      await this.renderTable(comparison.lineDiffs);
       this.setLoading(false);
     } catch (err) {
       this.showError(err.message || String(err));
@@ -69,6 +73,53 @@ class DiffPage {
     if (ignoreWs) t = t.replace(/\s+/g, ' ');
     if (ignoreCase) t = t.toLowerCase();
     return t;
+  }
+
+  shouldUseWorker(contentFrom, contentTo) {
+    const totalLength = (contentFrom || '').length + (contentTo || '').length;
+    if (totalLength >= this.workerDiffThreshold) return true;
+
+    const totalLines = (contentFrom || '').split('\n').length + (contentTo || '').split('\n').length;
+    return totalLines >= this.workerLineThreshold;
+  }
+
+  async computeDiff(contentFrom, contentTo, options) {
+    if (this.shouldUseWorker(contentFrom, contentTo)) {
+      try {
+        return await this.computeDiffInWorker(contentFrom, contentTo, options);
+      } catch (error) {
+        console.warn('Worker diff 失敗，改用同步計算:', error);
+        this.setLoading(true, 'Worker 無法使用，改用同步計算...');
+      }
+    }
+
+    const normalizedFrom = this.normalize(contentFrom, options);
+    const normalizedTo = this.normalize(contentTo, options);
+    return diffEngine.computeDiff(normalizedFrom, normalizedTo);
+  }
+
+  computeDiffInWorker(contentFrom, contentTo, options) {
+    return new Promise((resolve, reject) => {
+      if (typeof Worker === 'undefined') {
+        reject(new Error('此瀏覽器不支援 Web Worker'));
+        return;
+      }
+
+      const worker = new Worker('js/workers/diffWorker.js');
+      worker.onmessage = (event) => {
+        worker.terminate();
+        if (event.data?.ok) {
+          resolve(event.data.comparison);
+          return;
+        }
+        reject(new Error(event.data?.error || 'Worker diff 失敗'));
+      };
+      worker.onerror = (event) => {
+        worker.terminate();
+        reject(new Error(event.message || 'Worker diff 載入失敗'));
+      };
+      worker.postMessage({ contentFrom, contentTo, options });
+    });
   }
 
   async renderMeta(fromVersion, toVersion, stats) {
@@ -119,12 +170,12 @@ class DiffPage {
     }
   }
 
-  renderTable(lineDiffs) {
+  async renderTable(lineDiffs) {
     const table = document.getElementById('diffTable');
     const wrap = document.getElementById('diffTableWrap');
     const empty = document.getElementById('emptyState');
 
-    table.innerHTML = '';
+    table.replaceChildren();
     empty.hidden = true;
 
     if (!lineDiffs || lineDiffs.length === 0) {
@@ -136,6 +187,9 @@ class DiffPage {
     wrap.hidden = false;
 
     let lineNum = 1;
+    const batchSize = 500;
+    let frag = document.createDocumentFragment();
+
     for (const [op, content] of lineDiffs) {
       const tr = document.createElement('tr');
       const marker = op === 1 ? '+' : op === -1 ? '-' : '';
@@ -154,9 +208,17 @@ class DiffPage {
       tr.appendChild(lineNumber);
       tr.appendChild(lineMarker);
       tr.appendChild(lineText);
-      table.appendChild(tr);
+      frag.appendChild(tr);
       lineNum++;
+
+      if (lineNum % batchSize === 0) {
+        table.appendChild(frag);
+        frag = document.createDocumentFragment();
+        await this.nextFrame();
+      }
     }
+
+    table.appendChild(frag);
   }
 
   async exportDiff() {
@@ -189,8 +251,14 @@ class DiffPage {
     }
   }
 
-  setLoading(isLoading) {
-    document.getElementById('loading').hidden = !isLoading;
+  nextFrame() {
+    return new Promise(resolve => requestAnimationFrame(resolve));
+  }
+
+  setLoading(isLoading, message = '載入中...') {
+    const loading = document.getElementById('loading');
+    loading.textContent = message;
+    loading.hidden = !isLoading;
     document.getElementById('diffTableWrap').hidden = isLoading;
     document.getElementById('emptyState').hidden = true;
     document.getElementById('errorState').hidden = true;

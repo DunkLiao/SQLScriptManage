@@ -252,12 +252,52 @@ class DatabaseManager {
     });
   }
 
+  async countStore(storeName, keyRange = null, indexName = null) {
+    if (!this.db) throw new Error('數據庫未初始化');
+    if (!this.db.objectStoreNames.contains(storeName)) return 0;
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(storeName, 'readonly');
+      const store = tx.objectStore(storeName);
+      const source = indexName ? store.index(indexName) : store;
+      const request = keyRange === null ? source.count() : source.count(keyRange);
+
+      request.onsuccess = () => resolve(request.result || 0);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async countByIndex(storeName, indexName, key) {
+    return await this.countStore(storeName, IDBKeyRange.only(key), indexName);
+  }
+
   /**
    * 獲取最新版本
    */
   async getLatestVersion() {
-    const versions = await this.getAllVersions();
-    return versions.length > 0 ? versions[versions.length - 1] : null;
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('versions', 'readonly');
+      const index = tx.objectStore('versions').index('timestamp');
+      const request = index.openCursor(null, 'prev');
+
+      request.onsuccess = () => resolve(request.result?.value || null);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getOldestVersion() {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('versions', 'readonly');
+      const index = tx.objectStore('versions').index('timestamp');
+      const request = index.openCursor(null, 'next');
+
+      request.onsuccess = () => resolve(request.result?.value || null);
+      request.onerror = () => reject(request.error);
+    });
   }
 
   /**
@@ -455,19 +495,19 @@ class DatabaseManager {
     if (!this.db) throw new Error('數據庫未初始化');
 
     const [projects, scripts, versions, tags, comments] = await Promise.all([
-      this.getAllProjects(),
-      this.getAllScripts(),
-      this.getAllVersions(),
-      this._getAllFromStore('tags'),
-      this._getAllFromStore('comments')
+      this.countStore('projects'),
+      this.countStore('sqlScripts'),
+      this.countStore('versions'),
+      this.countStore('tags'),
+      this.countStore('comments')
     ]);
 
     return {
-      projects: projects.length,
-      scripts: scripts.length,
-      versions: versions.length,
-      tags: tags.length,
-      comments: comments.length
+      projects,
+      scripts,
+      versions,
+      tags,
+      comments
     };
   }
 
@@ -489,17 +529,19 @@ class DatabaseManager {
   }
 
   async _buildImpactStats(versions, extra = {}) {
-    const versionIds = new Set(versions.map(version => version.versionId));
-    const [tags, comments] = await Promise.all([
-      this._getAllFromStore('tags'),
-      this._getAllFromStore('comments')
-    ]);
+    const versionIds = versions.map(version => version.versionId);
+    const tagCounts = await Promise.all(
+      versionIds.map(versionId => this.countByIndex('tags', 'versionId', versionId))
+    );
+    const commentCounts = await Promise.all(
+      versionIds.map(versionId => this.countByIndex('comments', 'versionId', versionId))
+    );
 
     return {
       scripts: extra.scripts || 0,
       versions: versions.length,
-      tags: tags.filter(tag => versionIds.has(tag.versionId)).length,
-      comments: comments.filter(comment => versionIds.has(comment.versionId)).length
+      tags: tagCounts.reduce((sum, count) => sum + count, 0),
+      comments: commentCounts.reduce((sum, count) => sum + count, 0)
     };
   }
 
@@ -600,18 +642,17 @@ class DatabaseManager {
    * 獲取數據庫統計信息
    */
   async getStatistics() {
-    const allVersions = await this.getAllVersions();
-    
-    let totalSize = 0;
-    for (const version of allVersions) {
-      totalSize += JSON.stringify(version).length;
-    }
+    const [totalVersions, latestVersion, oldestVersion] = await Promise.all([
+      this.countStore('versions'),
+      this.getLatestVersion(),
+      this.getOldestVersion()
+    ]);
 
     return {
-      totalVersions: allVersions.length,
-      totalSize,
-      lastVersionId: allVersions.length > 0 ? allVersions[allVersions.length - 1].versionId : null,
-      createdAt: allVersions.length > 0 ? allVersions[0].timestamp : null
+      totalVersions,
+      totalSize: null,
+      lastVersionId: latestVersion?.versionId || null,
+      createdAt: oldestVersion?.timestamp || null
     };
   }
 
@@ -912,20 +953,133 @@ class DatabaseManager {
     });
   }
 
+  async getVersionCountByScript(scriptId, projectId = null) {
+    if (!this.db) throw new Error('數據庫未初始化');
+    if (!scriptId) return 0;
+
+    if (projectId) {
+      const range = IDBKeyRange.bound(
+        [projectId, scriptId, 0],
+        [projectId, scriptId, Number.MAX_SAFE_INTEGER]
+      );
+      return await this.countStore('versions', range, 'projectId_scriptId_timestamp');
+    }
+
+    return await this.countByIndex('versions', 'scriptId', scriptId);
+  }
+
+  async getVersionCountByProject(projectId) {
+    if (!projectId) return 0;
+    return await this.countByIndex('versions', 'projectId', projectId);
+  }
+
+  async getVersionPageByScript(scriptId, options = {}) {
+    if (!this.db) throw new Error('數據庫未初始化');
+    if (!scriptId) return { versions: [], hasMore: false, nextCursor: null, total: 0 };
+
+    const {
+      projectId = null,
+      limit = 50,
+      beforeTimestamp = Number.MAX_SAFE_INTEGER
+    } = options;
+    const pageSize = Math.max(1, limit);
+    const versions = [];
+
+    const total = await this.getVersionCountByScript(scriptId, projectId);
+
+    await new Promise((resolve, reject) => {
+      const tx = this.db.transaction('versions', 'readonly');
+      const store = tx.objectStore('versions');
+      const source = projectId
+        ? store.index('projectId_scriptId_timestamp')
+        : store.index('scriptId');
+      const keyRange = projectId
+        ? IDBKeyRange.bound([projectId, scriptId, 0], [projectId, scriptId, beforeTimestamp], false, false)
+        : IDBKeyRange.only(scriptId);
+      const request = source.openCursor(keyRange, projectId ? 'prev' : 'next');
+      const collected = [];
+
+      request.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (!cursor) {
+          if (!projectId) {
+            collected.sort((a, b) => b.timestamp - a.timestamp);
+          }
+          versions.push(...collected.slice(0, pageSize + 1));
+          resolve();
+          return;
+        }
+
+        if (projectId) {
+          versions.push(cursor.value);
+          if (versions.length >= pageSize + 1) {
+            resolve();
+            return;
+          }
+        } else {
+          const version = cursor.value;
+          if (version.timestamp <= beforeTimestamp) {
+            collected.push(version);
+          }
+        }
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+
+    const hasMore = versions.length > pageSize;
+    const pageVersions = versions.slice(0, pageSize);
+    const lastVersion = pageVersions[pageVersions.length - 1];
+
+    return {
+      versions: pageVersions,
+      hasMore,
+      nextCursor: lastVersion ? { beforeTimestamp: lastVersion.timestamp - 1 } : null,
+      total
+    };
+  }
+
   /**
    * 獲取指定 SQL 腳本的最新版本
    */
-  async getLatestVersionByScript(scriptId) {
-    const versions = await this.getVersionsByScript(scriptId);
-    return versions.length > 0 ? versions[0] : null;
+  async getLatestVersionByScript(scriptId, projectId = null) {
+    if (!this.db) throw new Error('數據庫未初始化');
+    if (!scriptId) return null;
+
+    if (!projectId) {
+      const versions = await this.getVersionsByScript(scriptId);
+      return versions.length > 0 ? versions[0] : null;
+    }
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('versions', 'readonly');
+      const index = tx.objectStore('versions').index('projectId_scriptId_timestamp');
+      const range = IDBKeyRange.bound(
+        [projectId, scriptId, 0],
+        [projectId, scriptId, Number.MAX_SAFE_INTEGER]
+      );
+      const request = index.openCursor(range, 'prev');
+
+      request.onsuccess = () => resolve(request.result?.value || null);
+      request.onerror = () => reject(request.error);
+    });
   }
 
   /**
    * 獲取指定專案的最新版本
    */
   async getLatestVersionByProject(projectId) {
-    const versions = await this.getVersionsByProject(projectId);
-    return versions.length > 0 ? versions[0] : null;
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('versions', 'readonly');
+      const index = tx.objectStore('versions').index('projectId_timestamp');
+      const range = IDBKeyRange.bound([projectId, 0], [projectId, Number.MAX_SAFE_INTEGER]);
+      const request = index.openCursor(range, 'prev');
+
+      request.onsuccess = () => resolve(request.result?.value || null);
+      request.onerror = () => reject(request.error);
+    });
   }
 
   /**

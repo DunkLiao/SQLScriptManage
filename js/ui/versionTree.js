@@ -17,6 +17,14 @@ class VersionTreeController {
     this.onCompareVersion = options.onCompareVersion;
     this.onError = options.onError;
     this.selectedVersionId = null;
+    this.pageSize = options.pageSize || 50;
+    this.versions = [];
+    this.nextCursor = null;
+    this.hasMore = false;
+    this.totalCount = 0;
+    this.isSearching = false;
+    this.currentKeyword = '';
+    this.loadMoreButton = null;
   }
 
   bindEvents() {
@@ -49,10 +57,9 @@ class VersionTreeController {
 
   async load() {
     try {
-      const versions = await this.versionManager.getAllVersions();
-      this.renderVersions(versions, '此 SQL 腳本暫無版本');
-      this.updateTitle(versions.length);
-      console.log('版本列表加載：', versions.map(v => v.versionId));
+      this.isSearching = false;
+      this.currentKeyword = '';
+      await this.loadFirstPage();
     } catch (error) {
       this.handleError('載入版本列表失敗：' + error.message);
     }
@@ -74,16 +81,67 @@ class VersionTreeController {
     }
 
     try {
+      this.isSearching = true;
+      this.currentKeyword = keyword;
+      this.setLoadingState('搜尋中...');
       const results = await this.versionManager.searchVersions(keyword);
+      this.versions = results;
+      this.hasMore = false;
+      this.nextCursor = null;
+      this.totalCount = results.length;
       this.renderVersions(results, '未找到相符的版本');
+      this.updateTitle(results.length, results.length);
     } catch (error) {
       this.handleError('搜尋失敗：' + error.message);
     }
   }
 
+  async loadFirstPage() {
+    this.setLoadingState('載入版本中...');
+    const page = await this.versionManager.getVersionPage({ limit: this.pageSize });
+    this.versions = page.versions;
+    this.nextCursor = page.nextCursor;
+    this.hasMore = page.hasMore;
+    this.totalCount = page.total;
+    this.renderVersions(this.versions, '此 SQL 腳本暫無版本');
+    this.updateTitle(this.versions.length, this.totalCount);
+    console.log('版本列表加載：', this.versions.map(v => v.versionId));
+  }
+
+  async loadMore() {
+    if (!this.hasMore || !this.nextCursor || this.isSearching) return;
+
+    try {
+      this.setLoadMoreBusy(true);
+      const page = await this.versionManager.getVersionPage({
+        limit: this.pageSize,
+        beforeTimestamp: this.nextCursor.beforeTimestamp
+      });
+      this.versions.push(...page.versions);
+      this.nextCursor = page.nextCursor;
+      this.hasMore = page.hasMore;
+      this.totalCount = page.total;
+      this.appendVersions(page.versions);
+      this.renderLoadMore();
+      this.updateTitle(this.versions.length, this.totalCount);
+    } catch (error) {
+      this.handleError('載入更多版本失敗：' + error.message);
+    } finally {
+      this.setLoadMoreBusy(false);
+    }
+  }
+
+  setLoadingState(message) {
+    if (!this.treeContainer) return;
+    const loading = document.createElement('p');
+    loading.className = 'empty-state';
+    loading.textContent = message;
+    this.treeContainer.replaceChildren(loading);
+  }
+
   renderVersions(versions, emptyMessage) {
     if (!this.treeContainer) return;
-    this.treeContainer.innerHTML = '';
+    this.treeContainer.replaceChildren();
 
     if (versions.length === 0) {
       const empty = document.createElement('p');
@@ -102,7 +160,53 @@ class VersionTreeController {
       }
     }
     this.treeContainer.appendChild(frag);
+    this.renderLoadMore();
     this.setSelectedVersion(this.selectedVersionId);
+  }
+
+  appendVersions(versions) {
+    if (!this.treeContainer || versions.length === 0) return;
+    const frag = document.createDocumentFragment();
+    for (const version of versions) {
+      try {
+        frag.appendChild(this.createItem(version));
+      } catch (error) {
+        console.warn('渲染版本項目失敗：', version.versionId, error);
+      }
+    }
+
+    if (this.loadMoreButton && this.loadMoreButton.parentElement === this.treeContainer) {
+      this.treeContainer.insertBefore(frag, this.loadMoreButton);
+    } else {
+      this.treeContainer.appendChild(frag);
+    }
+    this.setSelectedVersion(this.selectedVersionId);
+  }
+
+  renderLoadMore() {
+    if (!this.treeContainer) return;
+    if (this.loadMoreButton) {
+      this.loadMoreButton.remove();
+      this.loadMoreButton = null;
+    }
+
+    if (!this.hasMore || this.isSearching) return;
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'version-load-more';
+    button.textContent = `載入更多（已顯示 ${this.versions.length} / ${this.totalCount}）`;
+    button.addEventListener('click', () => this.loadMore());
+    this.loadMoreButton = button;
+    this.treeContainer.appendChild(button);
+  }
+
+  setLoadMoreBusy(isBusy) {
+    if (!this.loadMoreButton) return;
+    this.loadMoreButton.disabled = isBusy;
+    this.loadMoreButton.textContent = isBusy
+      ? '載入中...'
+      : `載入更多（已顯示 ${this.versions.length} / ${this.totalCount}）`;
   }
 
   createItem(version) {
@@ -192,14 +296,18 @@ class VersionTreeController {
     }
   }
 
-  updateTitle(versionCount) {
+  updateTitle(loadedCount, totalCount = loadedCount) {
     if (!this.titleElement) return;
 
     const currentScript = this.scriptManager?.getCurrentScript();
     const scriptName = currentScript
       ? ` - ${this.formatScriptDisplayName(currentScript.scriptName)}`
       : '';
-    this.titleElement.textContent = `版本列表${scriptName}（${versionCount}）`;
+    const countText = totalCount > loadedCount
+      ? `${loadedCount} / ${totalCount}`
+      : `${loadedCount}`;
+    const searchText = this.isSearching ? ' 搜尋結果' : '';
+    this.titleElement.textContent = `版本列表${scriptName}${searchText}（${countText}）`;
   }
 
   handleError(message) {

@@ -45,7 +45,7 @@ class VersionManager {
       throw new Error('未指定 SQL 腳本');
     }
 
-    const latestVersion = await this.db.getLatestVersionByScript(scriptId);
+    const latestVersion = await this.db.getLatestVersionByScript(scriptId, projectId);
     const latestContent = latestVersion
       ? await this.getVersionContent(latestVersion.versionId)
       : '';
@@ -166,6 +166,29 @@ class VersionManager {
     const scriptId = this.scriptManager?.getCurrentScriptId();
     if (!scriptId) return [];
     return await this.db.getVersionsByScript(scriptId);
+  }
+
+  async getVersionPage(options = {}) {
+    const projectId = options.projectId || this.projectManager?.getCurrentProjectId();
+    const scriptId = options.scriptId || this.scriptManager?.getCurrentScriptId();
+    if (!scriptId) {
+      return { versions: [], hasMore: false, nextCursor: null, total: 0 };
+    }
+
+    return await this.db.getVersionPageByScript(scriptId, {
+      projectId,
+      limit: options.limit || 50,
+      beforeTimestamp: options.beforeTimestamp
+    });
+  }
+
+  async getVersionCount(scriptId = null, projectId = null) {
+    const targetScriptId = scriptId || this.scriptManager?.getCurrentScriptId();
+    if (!targetScriptId) return 0;
+    return await this.db.getVersionCountByScript(
+      targetScriptId,
+      projectId || this.projectManager?.getCurrentProjectId()
+    );
   }
 
   /**
@@ -372,14 +395,33 @@ class VersionManager {
    * 搜尋版本（按 SQL 描述）
    */
   async searchVersions(keyword) {
-    const allVersions = await this.getAllVersions();
     const lowerKeyword = keyword.toLowerCase();
+    const matches = [];
+    let beforeTimestamp = Number.MAX_SAFE_INTEGER;
+    let hasMore = true;
 
-    return allVersions.filter(v =>
-      (v.description || '').toLowerCase().includes(lowerKeyword) ||
-      (v.label || '').toLowerCase().includes(lowerKeyword) ||
-      (v.author || '').toLowerCase().includes(lowerKeyword)
-    );
+    while (hasMore) {
+      const page = await this.getVersionPage({
+        limit: 100,
+        beforeTimestamp
+      });
+
+      for (const version of page.versions) {
+        if (
+          (version.description || '').toLowerCase().includes(lowerKeyword) ||
+          (version.label || '').toLowerCase().includes(lowerKeyword) ||
+          (version.author || '').toLowerCase().includes(lowerKeyword)
+        ) {
+          matches.push(version);
+        }
+      }
+
+      hasMore = page.hasMore;
+      beforeTimestamp = page.nextCursor?.beforeTimestamp;
+      if (!beforeTimestamp) break;
+    }
+
+    return matches;
   }
 
   /**

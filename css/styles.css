@@ -659,6 +659,28 @@ select {
   font-size: 11px;
 }
 
+.version-load-more {
+  width: calc(100% - 20px);
+  min-height: 36px;
+  margin: 10px;
+  color: var(--primary);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.version-load-more:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+.version-load-more:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .card-detail {
   flex: 1 1 42%;
   min-height: 220px;
@@ -1197,10 +1219,27 @@ select {
 }
 
 .card-split-editor {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.card-split-editor[data-loading="true"]::after {
+  content: attr(data-loading-message);
+  position: absolute;
+  top: 56px;
+  right: 12px;
+  z-index: 2;
+  padding: 7px 10px;
+  color: var(--text-secondary);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .split-view-body {
