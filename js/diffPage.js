@@ -13,7 +13,9 @@ class DiffPage {
 
   async init() {
     try {
-      if (typeof diff_match_patch === 'undefined') throw new Error('diff-match-patch 未載入');
+      if (typeof diff_match_patch === 'undefined') {
+        throw new Error('diff-match-patch 未載入。請檢查網路連線後重新整理頁面。');
+      }
       await db.initialize();
       this.db = db;
       await versionManager.init(db, diffEngine);

@@ -43,6 +43,10 @@
           <select id="scriptSelector" class="project-select">
             <!-- 選項動態插入 -->
           </select>
+          <button class="btn btn-secondary btn-compact" id="btnSearchScripts" title="搜尋 SQL 腳本">
+            <span class="icon">🔎</span>
+            <span>搜尋</span>
+          </button>
           <button class="btn btn-secondary btn-compact" id="btnNewScript" title="建立新 SQL 腳本">
             <span class="icon">＋</span>
             <span>新建</span>
@@ -102,6 +106,8 @@
         </button>
         <div class="dropdown-menu" id="moreMenu" style="display: none;">
           <button class="dropdown-item" id="btnCompare">差異比對</button>
+          <button class="dropdown-item" id="btnManageTags">標籤管理</button>
+          <button class="dropdown-item" id="btnBackupReminder">備份提醒</button>
           <button class="dropdown-item" id="btnFullBackup">完整備份</button>
           <button class="dropdown-item" id="btnFullRestore">完整還原</button>
           <button class="dropdown-item" id="btnClearAllData">清空全部資料</button>
@@ -243,6 +249,11 @@
             </div>
             <div class="version-filter-summary" id="versionFilterSummary">顯示全部版本</div>
           </div>
+          <div class="version-pagination" id="versionPagination" aria-label="版本列表分頁">
+            <button class="btn btn-secondary btn-compact" id="btnPrevVersionPage" type="button">上一頁</button>
+            <span id="versionPageInfo">第 1 頁</span>
+            <button class="btn btn-secondary btn-compact" id="btnNextVersionPage" type="button">下一頁</button>
+          </div>
           <div class="version-tree" id="versionTree">
             <!-- 版本項動態插入 -->
           </div>
@@ -282,6 +293,10 @@
     <div class="context-menu-item" id="contextCompare">
       <span class="icon">🔍</span>
       <span>與當前版本比較</span>
+    </div>
+    <div class="context-menu-item" id="contextPin">
+      <span class="icon">📌</span>
+      <span>釘選重要版本</span>
     </div>
   </div>
 
@@ -674,6 +689,91 @@
     </div>
   </div>
 
+  <!-- SQL 腳本搜尋對話框 -->
+  <div id="scriptSearchModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>搜尋 SQL 腳本</h2>
+        <button class="btn-close" id="btnCloseScriptSearch">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="scriptSearchInput">關鍵字</label>
+          <input id="scriptSearchInput" class="form-input" type="text" placeholder="腳本名稱、版本描述、作者或標籤" />
+        </div>
+        <div id="scriptSearchResults" class="script-search-results"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelScriptSearch">關閉</button>
+        <button class="btn btn-primary" id="btnRunScriptSearch">搜尋</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 標籤管理對話框 -->
+  <div id="tagManagementModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-large">
+      <div class="modal-header">
+        <h2>標籤管理</h2>
+        <button class="btn-close" id="btnCloseTagManagement">×</button>
+      </div>
+      <div class="modal-body tag-management-body">
+        <div class="form-group">
+          <label for="tagVersionSelect">版本</label>
+          <select id="tagVersionSelect" class="form-input"></select>
+        </div>
+        <div class="tag-editor-grid">
+          <div class="form-group">
+            <label for="tagNameInput">標籤名稱</label>
+            <input id="tagNameInput" class="form-input" type="text" placeholder="例如：release、hotfix" />
+          </div>
+          <div class="form-group">
+            <label for="tagColorInput">顏色</label>
+            <input id="tagColorInput" class="form-input color-input" type="color" value="#2563eb" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="tagDescriptionInput">描述</label>
+          <input id="tagDescriptionInput" class="form-input" type="text" placeholder="選填" />
+        </div>
+        <div id="tagList" class="tag-management-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelTagManagement">關閉</button>
+        <button class="btn btn-primary" id="btnAddTag">新增標籤</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 備份提醒對話框 -->
+  <div id="backupReminderModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>備份提醒</h2>
+        <button class="btn-close" id="btnCloseBackupReminder">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="checkbox-label">
+          <input type="checkbox" id="backupReminderEnabled" checked />
+          <span>啟用自動備份提醒</span>
+        </label>
+        <div class="form-group">
+          <label for="backupReminderSaveCount">每幾次保存提醒</label>
+          <input id="backupReminderSaveCount" class="form-input" type="number" min="1" value="10" />
+        </div>
+        <div class="form-group">
+          <label for="backupReminderDays">距上次備份幾天提醒</label>
+          <input id="backupReminderDays" class="form-input" type="number" min="1" value="7" />
+        </div>
+        <p class="form-help" id="backupReminderStatus">目前狀態載入中...</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelBackupReminder">取消</button>
+        <button class="btn btn-primary" id="btnSaveBackupReminder">保存設定</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ========== 腳本引入 ========== -->
   <!-- 外部庫 -->
   <script src="https://unpkg.com/diff-match-patch@1.0.5/index.js"></script>
@@ -686,17 +786,17 @@
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.js"></script>
   
   <!-- 應用腳本 (確保依序加載) -->
-  <script src="js/modules/database.js?v=5"></script>
-  <script src="js/modules/diffEngine.js?v=5"></script>
-  <script src="js/modules/projectManager.js?v=5"></script>  <!-- v3 新增：專案管理器 -->
-  <script src="js/modules/scriptManager.js?v=5"></script>  <!-- v5 新增：SQL 腳本管理器 -->
-  <script src="js/modules/versionManager.js?v=5"></script>
-  <script src="js/modules/importExport.js?v=5"></script>
-  <script src="js/ui/dialogs.js?v=5"></script>
-  <script src="js/ui/versionTree.js?v=5"></script>
-  <script src="js/ui/editorController.js?v=5"></script>
-  <script src="js/ui/importExportDialogs.js?v=5"></script>
-  <script src="js/app.js?v=5"></script>
+  <script src="js/modules/database.js?v=9"></script>
+  <script src="js/modules/diffEngine.js?v=9"></script>
+  <script src="js/modules/projectManager.js?v=9"></script>  <!-- v3 新增：專案管理器 -->
+  <script src="js/modules/scriptManager.js?v=9"></script>  <!-- v5 新增：SQL 腳本管理器 -->
+  <script src="js/modules/versionManager.js?v=9"></script>
+  <script src="js/modules/importExport.js?v=9"></script>
+  <script src="js/ui/dialogs.js?v=9"></script>
+  <script src="js/ui/versionTree.js?v=9"></script>
+  <script src="js/ui/editorController.js?v=9"></script>
+  <script src="js/ui/importExportDialogs.js?v=9"></script>
+  <script src="js/app.js?v=9"></script>
   
   <!-- 初始化檢查 -->
   <script>
@@ -704,6 +804,8 @@
     window.addEventListener('DOMContentLoaded', () => {
       console.log('檢查依賴加載狀態:');
       console.log('- diff_match_patch:', typeof diff_match_patch !== 'undefined' ? '✓' : '✗');
+      console.log('- sqlFormatter:', typeof sqlFormatter !== 'undefined' ? '✓' : '✗');
+      console.log('- monaco:', typeof monaco !== 'undefined' ? '✓' : '✗');
       console.log('- db:', typeof db !== 'undefined' ? '✓' : '✗');
       console.log('- diffEngine:', typeof diffEngine !== 'undefined' ? '✓' : '✗');
       console.log('- projectManager:', typeof projectManager !== 'undefined' ? '✓' : '✗');
@@ -713,13 +815,24 @@
       console.log('- EditorController:', typeof EditorController !== 'undefined' ? '✓' : '✗');
       console.log('- ImportExportDialogs:', typeof ImportExportDialogs !== 'undefined' ? '✓' : '✗');
       
-      if (typeof diff_match_patch === 'undefined') {
-        console.error('❌ diff-match-patch 庫加載失敗，請檢查網絡連接');
+      const missing = [
+        ['diff-match-patch', typeof diff_match_patch !== 'undefined'],
+        ['sql-formatter', typeof sqlFormatter !== 'undefined'],
+        ['Monaco Editor', typeof monaco !== 'undefined'],
+        ['本機應用腳本', typeof db !== 'undefined' && typeof SQLVersionApp !== 'undefined']
+      ].filter(([, ok]) => !ok).map(([name]) => name);
+
+      if (missing.length > 0) {
+        console.error('❌ 依賴加載失敗:', missing.join(', '));
         if (typeof dialogs !== 'undefined') {
-          dialogs.showAlert({
+          dialogs.showConfirm({
             title: '載入失敗',
-            message: '差異比對庫加載失敗，請刷新頁面重試',
+            message: `以下依賴載入失敗：${missing.join('、')}。\n\n請檢查網路連線或 CDN 是否可用。要重新載入頁面重試嗎？`,
+            confirmText: '重新載入',
+            cancelText: '稍後',
             kind: 'danger'
+          }).then((retry) => {
+            if (retry) window.location.reload();
           });
         }
       }

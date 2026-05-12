@@ -11,6 +11,7 @@ class ImportExportDialogs {
     this.renderImpactSummary = options.renderImpactSummary;
     this.confirmDangerAction = options.confirmDangerAction;
     this.onDataChanged = options.onDataChanged || (async () => {});
+    this.onFullBackupComplete = options.onFullBackupComplete || (async () => {});
     this.onError = options.onError || ((message) => {
       if (typeof dialogs !== 'undefined') {
         dialogs.showAlert({ title: '操作失敗', message, kind: 'danger' });
@@ -463,6 +464,7 @@ class ImportExportDialogs {
 
       console.log('✓ 完整備份完成');
       dialogs.showToast('完整資料庫備份成功！', { kind: 'success' });
+      await this.onFullBackupComplete();
       document.getElementById('fullBackupModal').style.display = 'none';
     } catch (error) {
       console.error('完整備份失敗:', error);

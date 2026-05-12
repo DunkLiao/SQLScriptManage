@@ -16,21 +16,28 @@ class VersionTreeController {
     this.tagFilter = options.tagFilter;
     this.resetFiltersButton = options.resetFiltersButton;
     this.filterSummary = options.filterSummary;
+    this.paginationContainer = options.paginationContainer;
+    this.prevPageButton = options.prevPageButton;
+    this.nextPageButton = options.nextPageButton;
+    this.pageInfo = options.pageInfo;
     this.contextMenu = options.contextMenu;
     this.contextCompare = options.contextCompare;
+    this.contextPin = options.contextPin;
     this.titleElement = options.titleElement;
     this.formatScriptDisplayName = options.formatScriptDisplayName;
     this.onSelectVersion = options.onSelectVersion;
     this.onCompareVersion = options.onCompareVersion;
+    this.onTogglePinned = options.onTogglePinned;
     this.onError = options.onError;
     this.selectedVersionId = null;
-    this.pageSize = options.pageSize || 50;
+    this.pageSize = options.pageSize || 5;
     this.versions = [];
     this.nextCursor = null;
     this.hasMore = false;
     this.totalCount = 0;
     this.currentKeyword = '';
-    this.loadMoreButton = null;
+    this.pageIndex = 0;
+    this.pageCursors = [null];
   }
 
   bindEvents() {
@@ -53,6 +60,14 @@ class VersionTreeController {
       this.resetFiltersButton.addEventListener('click', () => this.resetFilters());
     }
 
+    if (this.prevPageButton) {
+      this.prevPageButton.addEventListener('click', () => this.loadPreviousPage());
+    }
+
+    if (this.nextPageButton) {
+      this.nextPageButton.addEventListener('click', () => this.loadNextPage());
+    }
+
     if (this.contextMenu) {
       document.addEventListener('contextmenu', () => {
         this.hideContextMenu();
@@ -65,6 +80,16 @@ class VersionTreeController {
         this.hideContextMenu();
         if (versionId && this.onCompareVersion) {
           this.onCompareVersion(versionId);
+        }
+      });
+    }
+
+    if (this.contextPin && this.contextMenu) {
+      this.contextPin.addEventListener('click', () => {
+        const versionId = this.contextMenu.dataset.versionId;
+        this.hideContextMenu();
+        if (versionId && this.onTogglePinned) {
+          this.onTogglePinned(versionId);
         }
       });
     }
@@ -105,19 +130,35 @@ class VersionTreeController {
   }
 
   async loadFirstPage() {
+    this.pageIndex = 0;
+    this.pageCursors = [null];
+    await this.loadPageAt(0);
+  }
+
+  async loadPageAt(pageIndex) {
     this.setLoadingState('載入版本中...');
+    const cursor = this.pageCursors[pageIndex] || null;
     const page = await this.versionManager.getVersionPage({
       ...this.getQueryOptions(),
-      limit: this.pageSize
+      limit: this.pageSize,
+      beforeTimestamp: cursor?.beforeTimestamp,
+      offset: cursor?.offset
     });
     this.versions = page.versions;
     this.nextCursor = page.nextCursor;
     this.hasMore = page.hasMore;
     this.totalCount = page.total;
+    this.pageIndex = pageIndex;
+    if (this.nextCursor) {
+      this.pageCursors[pageIndex + 1] = this.nextCursor;
+    } else {
+      this.pageCursors = this.pageCursors.slice(0, pageIndex + 1);
+    }
     const emptyMessage = this.hasActiveFilters() ? '未找到符合條件的版本' : '此 SQL 腳本暫無版本';
     this.renderVersions(this.versions, emptyMessage);
     this.updateTitle(this.versions.length, this.totalCount);
     this.updateFilterSummary();
+    this.updatePagination();
     console.log('版本列表加載：', this.versions.map(v => v.versionId));
   }
 
@@ -129,28 +170,21 @@ class VersionTreeController {
     }
   }
 
-  async loadMore() {
-    if (!this.hasMore || !this.nextCursor) return;
-
+  async loadPreviousPage() {
+    if (this.pageIndex <= 0) return;
     try {
-      this.setLoadMoreBusy(true);
-      const page = await this.versionManager.getVersionPage({
-        ...this.getQueryOptions(),
-        limit: this.pageSize,
-        beforeTimestamp: this.nextCursor.beforeTimestamp,
-        offset: this.nextCursor.offset
-      });
-      this.versions.push(...page.versions);
-      this.nextCursor = page.nextCursor;
-      this.hasMore = page.hasMore;
-      this.totalCount = page.total;
-      this.appendVersions(page.versions);
-      this.renderLoadMore();
-      this.updateTitle(this.versions.length, this.totalCount);
+      await this.loadPageAt(this.pageIndex - 1);
     } catch (error) {
-      this.handleError('載入更多版本失敗：' + error.message);
-    } finally {
-      this.setLoadMoreBusy(false);
+      this.handleError('載入上一頁失敗：' + error.message);
+    }
+  }
+
+  async loadNextPage() {
+    if (!this.hasMore || !this.nextCursor) return;
+    try {
+      await this.loadPageAt(this.pageIndex + 1);
+    } catch (error) {
+      this.handleError('載入下一頁失敗：' + error.message);
     }
   }
 
@@ -183,53 +217,7 @@ class VersionTreeController {
       }
     }
     this.treeContainer.appendChild(frag);
-    this.renderLoadMore();
     this.setSelectedVersion(this.selectedVersionId);
-  }
-
-  appendVersions(versions) {
-    if (!this.treeContainer || versions.length === 0) return;
-    const frag = document.createDocumentFragment();
-    for (const version of versions) {
-      try {
-        frag.appendChild(this.createItem(version));
-      } catch (error) {
-        console.warn('渲染版本項目失敗：', version.versionId, error);
-      }
-    }
-
-    if (this.loadMoreButton && this.loadMoreButton.parentElement === this.treeContainer) {
-      this.treeContainer.insertBefore(frag, this.loadMoreButton);
-    } else {
-      this.treeContainer.appendChild(frag);
-    }
-    this.setSelectedVersion(this.selectedVersionId);
-  }
-
-  renderLoadMore() {
-    if (!this.treeContainer) return;
-    if (this.loadMoreButton) {
-      this.loadMoreButton.remove();
-      this.loadMoreButton = null;
-    }
-
-    if (!this.hasMore) return;
-
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'version-load-more';
-    button.textContent = `載入更多（已顯示 ${this.versions.length} / ${this.totalCount}）`;
-    button.addEventListener('click', () => this.loadMore());
-    this.loadMoreButton = button;
-    this.treeContainer.appendChild(button);
-  }
-
-  setLoadMoreBusy(isBusy) {
-    if (!this.loadMoreButton) return;
-    this.loadMoreButton.disabled = isBusy;
-    this.loadMoreButton.textContent = isBusy
-      ? '載入中...'
-      : `載入更多（已顯示 ${this.versions.length} / ${this.totalCount}）`;
   }
 
   createItem(version) {
@@ -253,6 +241,12 @@ class VersionTreeController {
     id.textContent = version.versionId;
 
     header.appendChild(toggle);
+    if (version.isPinned) {
+      const pin = document.createElement('span');
+      pin.className = 'version-pin';
+      pin.textContent = '置頂';
+      header.appendChild(pin);
+    }
     header.appendChild(description);
     header.appendChild(id);
 
@@ -317,6 +311,11 @@ class VersionTreeController {
   showContextMenu(event, versionId) {
     if (!this.contextMenu) return;
     this.contextMenu.dataset.versionId = versionId;
+    const version = this.versions.find(item => item.versionId === versionId);
+    if (this.contextPin) {
+      const label = this.contextPin.querySelector('span:last-child');
+      if (label) label.textContent = version?.isPinned ? '取消釘選' : '釘選重要版本';
+    }
     this.contextMenu.style.left = event.clientX + 'px';
     this.contextMenu.style.top = event.clientY + 'px';
     this.contextMenu.style.display = 'block';
@@ -341,9 +340,9 @@ class VersionTreeController {
     const scriptName = currentScript
       ? ` - ${this.formatScriptDisplayName(currentScript.scriptName)}`
       : '';
-    const countText = totalCount > loadedCount
-      ? `${loadedCount} / ${totalCount}`
-      : `${loadedCount}`;
+    const start = totalCount === 0 ? 0 : this.pageIndex * this.pageSize + 1;
+    const end = Math.min(totalCount, start + loadedCount - 1);
+    const countText = totalCount > 0 ? `${start}-${end} / ${totalCount}` : '0';
     const filterText = this.hasActiveFilters() ? ' 篩選結果' : '';
     this.titleElement.textContent = `版本列表${scriptName}${filterText}（${countText}）`;
   }
@@ -359,8 +358,26 @@ class VersionTreeController {
       filters.push(`日期 ${options.dateFrom || '不限'} 至 ${options.dateTo || '不限'}`);
     }
 
+    const start = this.totalCount === 0 ? 0 : this.pageIndex * this.pageSize + 1;
+    const end = this.totalCount === 0 ? 0 : Math.min(this.totalCount, start + this.versions.length - 1);
     const prefix = filters.length > 0 ? filters.join('、') : '顯示全部版本';
-    this.filterSummary.textContent = `${prefix}，目前顯示 ${this.versions.length} / ${this.totalCount}`;
+    this.filterSummary.textContent = `${prefix}，目前顯示 ${start}-${end} / ${this.totalCount}`;
+  }
+
+  updatePagination() {
+    if (this.paginationContainer) {
+      this.paginationContainer.hidden = this.totalCount <= this.pageSize && this.pageIndex === 0;
+    }
+    if (this.prevPageButton) {
+      this.prevPageButton.disabled = this.pageIndex <= 0;
+    }
+    if (this.nextPageButton) {
+      this.nextPageButton.disabled = !this.hasMore;
+    }
+    if (this.pageInfo) {
+      const totalPages = Math.max(1, Math.ceil(this.totalCount / this.pageSize));
+      this.pageInfo.textContent = `第 ${this.pageIndex + 1} / ${totalPages} 頁`;
+    }
   }
 
   getQueryOptions() {

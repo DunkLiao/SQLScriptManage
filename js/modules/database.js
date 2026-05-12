@@ -380,6 +380,22 @@ class DatabaseManager {
     });
   }
 
+  async updateVersion(versionId, updates) {
+    const version = await this.getVersion(versionId);
+    if (!version) throw new Error('版本不存在');
+
+    Object.assign(version, updates, { updatedAt: Date.now() });
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('versions', 'readwrite');
+      const request = tx.objectStore('versions').put(version);
+
+      request.onsuccess = () => resolve(version);
+      request.onerror = () => reject(request.error);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
   /**
    * 保存標籤
    */
@@ -418,6 +434,48 @@ class DatabaseManager {
 
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAllTags() {
+    return await this._getAllFromStore('tags');
+  }
+
+  async updateTag(tagId, updates) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('tags', 'readwrite');
+      const store = tx.objectStore('tags');
+      const getRequest = store.get(tagId);
+
+      getRequest.onsuccess = () => {
+        const tag = getRequest.result;
+        if (!tag) {
+          reject(new Error('標籤不存在'));
+          return;
+        }
+
+        const updated = { ...tag, ...updates, updatedAt: Date.now() };
+        const putRequest = store.put(updated);
+        putRequest.onsuccess = () => resolve(updated);
+        putRequest.onerror = () => reject(putRequest.error);
+      };
+      getRequest.onerror = () => reject(getRequest.error);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async deleteTag(tagId) {
+    if (!this.db) throw new Error('數據庫未初始化');
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('tags', 'readwrite');
+      const request = tx.objectStore('tags').delete(tagId);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+      tx.onerror = () => reject(tx.error);
     });
   }
 

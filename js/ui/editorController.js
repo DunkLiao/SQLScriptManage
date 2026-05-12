@@ -58,6 +58,10 @@ class EditorController {
 
   async initMonacoEditor() {
     return new Promise((resolve, reject) => {
+      if (typeof require !== 'function' || typeof monaco === 'undefined') {
+        reject(new Error('Monaco Editor 未載入，請檢查網路連線後重試。'));
+        return;
+      }
       require(['vs/editor/editor.main'], () => {
         try {
           this.monacoEditor = monaco.editor.create(document.getElementById('monacoEditor'), {
@@ -174,6 +178,10 @@ class EditorController {
         this.onError('編輯器內容為空');
         return;
       }
+      if (typeof sqlFormatter === 'undefined') {
+        this.onError('SQL 格式化工具未載入，請檢查網路連線後重試。');
+        return;
+      }
 
       const formatted = sqlFormatter.format(sql, {
         language: 'mysql',
@@ -262,6 +270,11 @@ class EditorController {
 
   async initSplitEditors() {
     return new Promise((resolve) => {
+      if (typeof require !== 'function' || typeof monaco === 'undefined') {
+        this.onError('Monaco Editor 未載入，無法開啟比較模式。請檢查網路連線後重試。');
+        resolve();
+        return;
+      }
       require(['vs/editor/editor.main'], () => {
         const editorOptions = {
           language: 'sql',

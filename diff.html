@@ -46,10 +46,28 @@
   </main>
 
   <script src="https://unpkg.com/diff-match-patch@1.0.5/index.js"></script>
-  <script src="js/modules/database.js?v=5"></script>
-  <script src="js/modules/diffEngine.js?v=5"></script>
-  <script src="js/modules/versionManager.js?v=5"></script>
-  <script src="js/ui/dialogs.js?v=5"></script>
-  <script src="js/diffPage.js?v=5"></script>
+  <script src="js/modules/database.js?v=9"></script>
+  <script src="js/modules/diffEngine.js?v=9"></script>
+  <script src="js/modules/versionManager.js?v=9"></script>
+  <script src="js/ui/dialogs.js?v=9"></script>
+  <script src="js/diffPage.js?v=9"></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const missing = [
+        ['diff-match-patch', typeof diff_match_patch !== 'undefined'],
+        ['本機差異頁腳本', typeof DiffPage !== 'undefined']
+      ].filter(([, ok]) => !ok).map(([name]) => name);
+      if (missing.length === 0 || typeof dialogs === 'undefined') return;
+      dialogs.showConfirm({
+        title: '載入失敗',
+        message: `以下依賴載入失敗：${missing.join('、')}。\n\n請檢查網路連線或 CDN 是否可用。要重新載入頁面重試嗎？`,
+        confirmText: '重新載入',
+        cancelText: '稍後',
+        kind: 'danger'
+      }).then((retry) => {
+        if (retry) window.location.reload();
+      });
+    });
+  </script>
 </body>
 </html>

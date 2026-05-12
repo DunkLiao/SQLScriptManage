@@ -33,6 +33,12 @@ class SQLVersionApp {
       if (typeof diff_match_patch === 'undefined') {
         throw new Error('diff-match-patch 庫未加載');
       }
+      if (typeof sqlFormatter === 'undefined') {
+        throw new Error('sql-formatter 庫未加載');
+      }
+      if (typeof require !== 'function' || typeof monaco === 'undefined') {
+        throw new Error('Monaco Editor 未加載');
+      }
       if (typeof db === 'undefined') {
         throw new Error('database 模塊未加載');
       }
@@ -128,11 +134,19 @@ class SQLVersionApp {
       console.error('❌ 應用初始化失敗:', error);
       console.error('錯誤堆棧:', error.stack);
       this.showInitializationStatus('error', error.message);
-      await this.showAlert('應用初始化失敗：' + error.message + '\n\n請嘗試刷新頁面或清除瀏覽器快取。', {
-        title: '初始化失敗',
-        kind: 'danger'
-      });
+      await this.showDependencyFailure(error.message);
     }
+  }
+
+  async showDependencyFailure(message) {
+    const retry = await dialogs.showConfirm({
+      title: '初始化失敗',
+      message: '應用初始化失敗：' + message + '\n\n請檢查網路連線或 CDN 是否可用。要重新載入頁面重試嗎？',
+      confirmText: '重新載入',
+      cancelText: '稍後',
+      kind: 'danger'
+    });
+    if (retry) window.location.reload();
   }
 
   /**
@@ -166,12 +180,18 @@ class SQLVersionApp {
       tagFilter: document.getElementById('versionTagFilter'),
       resetFiltersButton: document.getElementById('btnResetVersionFilters'),
       filterSummary: document.getElementById('versionFilterSummary'),
+      paginationContainer: document.getElementById('versionPagination'),
+      prevPageButton: document.getElementById('btnPrevVersionPage'),
+      nextPageButton: document.getElementById('btnNextVersionPage'),
+      pageInfo: document.getElementById('versionPageInfo'),
       contextMenu: document.getElementById('contextMenu'),
       contextCompare: document.getElementById('contextCompare'),
+      contextPin: document.getElementById('contextPin'),
       titleElement: document.querySelector('.card.card-version-tree .card-header h3'),
       formatScriptDisplayName: (scriptName) => this.formatScriptDisplayName(scriptName),
       onSelectVersion: (versionId) => this.selectVersion(versionId),
       onCompareVersion: (versionId) => this.editorController.compareWithCurrent(versionId),
+      onTogglePinned: (versionId) => this.togglePinnedVersion(versionId),
       onError: (message) => this.showAlert(message, { title: '操作失敗', kind: 'danger' })
     });
     this.versionTreeController.bindEvents();
@@ -201,6 +221,7 @@ class SQLVersionApp {
       },
       confirmDangerAction: (options) => this.confirmDangerAction(options),
       onDataChanged: (options) => this.reloadAfterDataImport(options),
+      onFullBackupComplete: () => this.resetBackupReminderAfterBackup(),
       onError: (message) => this.showAlert(message, { title: '操作失敗', kind: 'danger' })
     });
     this.importExportDialogs.bindEvents();
@@ -355,6 +376,20 @@ class SQLVersionApp {
         this.importExportDialogs.showFullBackupDialog();
       });
     }
+    const btnManageTags = document.getElementById('btnManageTags');
+    if (btnManageTags && moreMenu) {
+      btnManageTags.addEventListener('click', () => {
+        moreMenu.style.display = 'none';
+        this.showTagsManagement();
+      });
+    }
+    const btnBackupReminder = document.getElementById('btnBackupReminder');
+    if (btnBackupReminder && moreMenu) {
+      btnBackupReminder.addEventListener('click', () => {
+        moreMenu.style.display = 'none';
+        this.showBackupReminderDialog();
+      });
+    }
     const btnFullRestore = document.getElementById('btnFullRestore');
     if (btnFullRestore && moreMenu) {
       btnFullRestore.addEventListener('click', () => {
@@ -403,6 +438,11 @@ class SQLVersionApp {
     const btnDeleteScript = document.getElementById('btnDeleteScript');
     if (btnDeleteScript) {
       btnDeleteScript.addEventListener('click', () => this.showDeleteScriptDialog());
+    }
+
+    const btnSearchScripts = document.getElementById('btnSearchScripts');
+    if (btnSearchScripts) {
+      btnSearchScripts.addEventListener('click', () => this.showScriptSearchDialog());
     }
 
     // 初始化狀態指示器 - 點擊重新初始化
@@ -562,6 +602,47 @@ class SQLVersionApp {
         await this.importExportDialogs.showFullBackupDialog();
       });
     }
+
+    this.bindSimpleModalClose('scriptSearchModal', ['btnCloseScriptSearch', 'btnCancelScriptSearch']);
+    const btnRunScriptSearch = document.getElementById('btnRunScriptSearch');
+    if (btnRunScriptSearch) {
+      btnRunScriptSearch.addEventListener('click', () => this.runScriptSearch());
+    }
+    const scriptSearchInput = document.getElementById('scriptSearchInput');
+    if (scriptSearchInput) {
+      scriptSearchInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') this.runScriptSearch();
+      });
+    }
+
+    this.bindSimpleModalClose('tagManagementModal', ['btnCloseTagManagement', 'btnCancelTagManagement']);
+    const tagVersionSelect = document.getElementById('tagVersionSelect');
+    if (tagVersionSelect) {
+      tagVersionSelect.addEventListener('change', () => this.renderTagListForSelectedVersion());
+    }
+    const btnAddTag = document.getElementById('btnAddTag');
+    if (btnAddTag) {
+      btnAddTag.addEventListener('click', () => this.addTagFromDialog());
+    }
+
+    this.bindSimpleModalClose('backupReminderModal', ['btnCloseBackupReminder', 'btnCancelBackupReminder']);
+    const btnSaveBackupReminder = document.getElementById('btnSaveBackupReminder');
+    if (btnSaveBackupReminder) {
+      btnSaveBackupReminder.addEventListener('click', () => this.saveBackupReminderSettings());
+    }
+  }
+
+  bindSimpleModalClose(modalId, buttonIds) {
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+    for (const buttonId of buttonIds) {
+      const button = document.getElementById(buttonId);
+      if (button) {
+        button.addEventListener('click', () => {
+          modal.style.display = 'none';
+        });
+      }
+    }
   }
 
   /**
@@ -645,14 +726,17 @@ class SQLVersionApp {
     const detailContent = document.getElementById('detailContent');
     if (detailContent) {
       const script = version.scriptId ? await this.db.getScript(version.scriptId) : null;
+      const tags = await this.versionManager.getVersionTags(version.versionId);
       detailContent.replaceChildren();
       const list = document.createElement('div');
       list.className = 'detail-list';
       const rows = [
         ['版本 ID', version.versionId],
         ['SQL 腳本', script ? this.formatScriptDisplayName(script.scriptName) : '(未知)'],
+        ['重要版本', version.isPinned ? '已釘選' : '未釘選'],
         ['時間', new Date(version.timestamp).toLocaleString('zh-TW')],
         ['標籤', version.label],
+        ['自訂標籤', tags.length > 0 ? tags.map(tag => tag.tagName).join('、') : '(無)'],
         ['作者', version.author],
         ['描述', version.description || '(無)'],
         ['父版本', version.parentVersionId || '(根版本)'],
@@ -837,6 +921,7 @@ class SQLVersionApp {
       await this.selectVersion(version.versionId);
 
       await this.updateStorageUsageStatus();
+      await this.handleBackupReminderAfterSave();
     } catch (error) {
       await this.showAlert('保存版本失敗：' + error.message, { title: '保存失敗', kind: 'danger' });
     }
@@ -1210,11 +1295,408 @@ class SQLVersionApp {
     }
   }
 
-  /**
-   * 顯示標籤管理（暫不實現）
-   */
-  showTagsManagement() {
-    this.showToast('標籤管理功能即將推出');
+  async togglePinnedVersion(versionId) {
+    try {
+      const updated = await this.versionManager.togglePinned(versionId);
+      await this.loadVersionTree();
+      if (this.selectedVersionId === versionId) {
+        await this.loadVersionDetail(versionId);
+      }
+      this.showToast(updated.isPinned ? '版本已釘選' : '版本已取消釘選', { kind: 'success' });
+    } catch (error) {
+      await this.showAlert('更新釘選狀態失敗：' + error.message, { title: '操作失敗', kind: 'danger' });
+    }
+  }
+
+  async showScriptSearchDialog() {
+    const input = document.getElementById('scriptSearchInput');
+    const results = document.getElementById('scriptSearchResults');
+    if (input) input.value = '';
+    if (results) {
+      const empty = document.createElement('p');
+      empty.className = 'placeholder-text';
+      empty.textContent = '輸入關鍵字搜尋目前專案內的 SQL 腳本。';
+      results.replaceChildren(empty);
+    }
+    const modal = document.getElementById('scriptSearchModal');
+    if (modal) modal.style.display = 'flex';
+    setTimeout(() => input?.focus(), 0);
+  }
+
+  async runScriptSearch() {
+    const input = document.getElementById('scriptSearchInput');
+    const results = document.getElementById('scriptSearchResults');
+    if (!input || !results) return;
+
+    const keyword = input.value.trim().toLowerCase();
+    if (!keyword) {
+      const empty = document.createElement('p');
+      empty.className = 'placeholder-text';
+      empty.textContent = '請輸入搜尋關鍵字。';
+      results.replaceChildren(empty);
+      return;
+    }
+
+    const scripts = this.scriptManager.getScripts();
+    const matches = [];
+    for (const script of scripts) {
+      const versions = await this.db.getVersionsByScript(script.scriptId);
+      const tagsByVersion = await this.db.getTagsForVersionIds(versions.map(version => version.versionId));
+      const searchable = [
+        script.scriptName,
+        script.description,
+        ...versions.flatMap(version => [
+          version.label,
+          version.description,
+          version.author,
+          version.versionId,
+          ...(tagsByVersion[version.versionId] || []).map(tag => tag.tagName)
+        ])
+      ].join(' ').toLowerCase();
+
+      if (searchable.includes(keyword)) {
+        matches.push({ script, versions: versions.length });
+      }
+    }
+
+    results.replaceChildren();
+    if (matches.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'placeholder-text';
+      empty.textContent = '找不到符合條件的 SQL 腳本。';
+      results.appendChild(empty);
+      return;
+    }
+
+    for (const match of matches) {
+      const item = document.createElement('div');
+      item.className = 'script-result-item';
+      const main = document.createElement('div');
+      main.className = 'script-result-main';
+      const title = document.createElement('strong');
+      title.textContent = this.formatScriptDisplayName(match.script.scriptName);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-secondary btn-compact';
+      button.textContent = '切換';
+      button.addEventListener('click', async () => {
+        document.getElementById('scriptSearchModal').style.display = 'none';
+        await this.switchScript(match.script.scriptId);
+      });
+      main.appendChild(title);
+      main.appendChild(button);
+      const meta = document.createElement('div');
+      meta.className = 'script-result-meta';
+      meta.textContent = `${match.versions} 個版本`;
+      item.appendChild(main);
+      item.appendChild(meta);
+      results.appendChild(item);
+    }
+  }
+
+  async showTagsManagement() {
+    try {
+      await this.populateTagVersionSelect();
+      await this.renderTagListForSelectedVersion();
+      const modal = document.getElementById('tagManagementModal');
+      if (modal) modal.style.display = 'flex';
+    } catch (error) {
+      await this.showAlert('載入標籤管理失敗：' + error.message, { title: '操作失敗', kind: 'danger' });
+    }
+  }
+
+  async populateTagVersionSelect() {
+    const select = document.getElementById('tagVersionSelect');
+    if (!select) return;
+
+    const versions = await this.loadAllCurrentScriptVersions();
+    select.replaceChildren();
+    if (versions.length === 0) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = '目前 SQL 腳本尚無版本';
+      select.appendChild(option);
+      return;
+    }
+
+    for (const version of versions) {
+      const option = document.createElement('option');
+      option.value = version.versionId;
+      option.textContent = `${version.label || version.versionId} - ${new Date(version.timestamp).toLocaleString('zh-TW')}`;
+      if (version.versionId === this.selectedVersionId) option.selected = true;
+      select.appendChild(option);
+    }
+  }
+
+  async loadAllCurrentScriptVersions() {
+    const versions = [];
+    let beforeTimestamp = Number.MAX_SAFE_INTEGER;
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const page = await this.versionManager.getVersionPage({
+        limit: 200,
+        beforeTimestamp,
+        offset
+      });
+      versions.push(...page.versions);
+      hasMore = page.hasMore;
+      beforeTimestamp = page.nextCursor?.beforeTimestamp || Number.MAX_SAFE_INTEGER;
+      offset = page.nextCursor?.offset || 0;
+      if (!page.nextCursor) break;
+    }
+    return versions;
+  }
+
+  async renderTagListForSelectedVersion() {
+    const select = document.getElementById('tagVersionSelect');
+    const list = document.getElementById('tagList');
+    if (!select || !list) return;
+
+    const versionId = select.value;
+    list.replaceChildren();
+    if (!versionId) {
+      const empty = document.createElement('p');
+      empty.className = 'placeholder-text';
+      empty.textContent = '請先選擇版本。';
+      list.appendChild(empty);
+      return;
+    }
+
+    const tags = await this.versionManager.getVersionTags(versionId);
+    if (tags.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'placeholder-text';
+      empty.textContent = '此版本尚無標籤。';
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const tag of tags) {
+      list.appendChild(this.createTagRow(tag));
+    }
+  }
+
+  createTagRow(tag) {
+    const row = document.createElement('div');
+    row.className = 'tag-row';
+    const main = document.createElement('div');
+    main.className = 'tag-row-main';
+    const left = document.createElement('div');
+    left.className = 'tag-row-main';
+    const dot = document.createElement('span');
+    dot.className = 'tag-color-dot';
+    dot.style.backgroundColor = tag.color || '#2563eb';
+    const name = document.createElement('strong');
+    name.textContent = tag.tagName;
+    left.appendChild(dot);
+    left.appendChild(name);
+
+    const actions = document.createElement('div');
+    actions.className = 'tag-row-actions';
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'btn btn-secondary btn-compact';
+    edit.textContent = '編輯';
+    edit.addEventListener('click', () => this.editTag(tag));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'btn btn-danger btn-compact';
+    remove.textContent = '刪除';
+    remove.addEventListener('click', () => this.deleteTag(tag));
+    actions.appendChild(edit);
+    actions.appendChild(remove);
+    main.appendChild(left);
+    main.appendChild(actions);
+    row.appendChild(main);
+
+    if (tag.description) {
+      const description = document.createElement('div');
+      description.className = 'tag-row-description';
+      description.textContent = tag.description;
+      row.appendChild(description);
+    }
+    return row;
+  }
+
+  async addTagFromDialog() {
+    const versionId = document.getElementById('tagVersionSelect')?.value || '';
+    const nameInput = document.getElementById('tagNameInput');
+    const colorInput = document.getElementById('tagColorInput');
+    const descriptionInput = document.getElementById('tagDescriptionInput');
+    const tagName = nameInput?.value.trim() || '';
+
+    if (!versionId) {
+      await this.showAlert('請先選擇版本', { title: '資料不完整' });
+      return;
+    }
+    if (!tagName) {
+      await this.showAlert('請輸入標籤名稱', { title: '資料不完整' });
+      return;
+    }
+
+    try {
+      await this.versionManager.createTag(
+        versionId,
+        tagName,
+        'custom',
+        colorInput?.value || '#2563eb',
+        descriptionInput?.value.trim() || ''
+      );
+      if (nameInput) nameInput.value = '';
+      if (descriptionInput) descriptionInput.value = '';
+      await this.afterTagChanged(versionId);
+      this.showToast('標籤已新增', { kind: 'success' });
+    } catch (error) {
+      await this.showAlert('新增標籤失敗：' + error.message, { title: '操作失敗', kind: 'danger' });
+    }
+  }
+
+  async editTag(tag) {
+    const nextName = await dialogs.showPrompt({
+      title: '編輯標籤',
+      message: '請輸入標籤名稱：',
+      defaultValue: tag.tagName,
+      confirmText: '保存'
+    });
+    if (!nextName) return;
+    const nextColor = await dialogs.showPrompt({
+      title: '編輯標籤顏色',
+      message: '請輸入十六進位顏色：',
+      defaultValue: tag.color || '#2563eb',
+      confirmText: '保存'
+    });
+    if (!nextColor) return;
+    const nextDescription = await dialogs.showPrompt({
+      title: '編輯標籤描述',
+      message: '請輸入標籤描述，可留空：',
+      defaultValue: tag.description || '',
+      confirmText: '保存'
+    });
+    if (nextDescription === null) return;
+
+    try {
+      await this.versionManager.updateTag(tag.tagId, {
+        tagName: nextName,
+        color: nextColor,
+        description: nextDescription
+      });
+      await this.afterTagChanged(tag.versionId);
+      this.showToast('標籤已更新', { kind: 'success' });
+    } catch (error) {
+      await this.showAlert('更新標籤失敗：' + error.message, { title: '操作失敗', kind: 'danger' });
+    }
+  }
+
+  async deleteTag(tag) {
+    const confirmed = await dialogs.showConfirm({
+      title: '刪除標籤',
+      message: `確定要刪除標籤「${tag.tagName}」嗎？`,
+      confirmText: '刪除',
+      cancelText: '取消',
+      kind: 'danger'
+    });
+    if (!confirmed) return;
+
+    try {
+      await this.versionManager.deleteTag(tag.tagId);
+      await this.afterTagChanged(tag.versionId);
+      this.showToast('標籤已刪除', { kind: 'success' });
+    } catch (error) {
+      await this.showAlert('刪除標籤失敗：' + error.message, { title: '操作失敗', kind: 'danger' });
+    }
+  }
+
+  async afterTagChanged(versionId) {
+    await this.renderTagListForSelectedVersion();
+    await this.loadVersionTree();
+    if (this.selectedVersionId === versionId) {
+      await this.loadVersionDetail(versionId);
+    }
+  }
+
+  async showBackupReminderDialog() {
+    const settings = await this.getBackupReminderSettings();
+    const state = await this.getBackupReminderState();
+    const enabled = document.getElementById('backupReminderEnabled');
+    const saveCount = document.getElementById('backupReminderSaveCount');
+    const days = document.getElementById('backupReminderDays');
+    const status = document.getElementById('backupReminderStatus');
+
+    if (enabled) enabled.checked = settings.enabled;
+    if (saveCount) saveCount.value = settings.saveCountThreshold;
+    if (days) days.value = settings.dayThreshold;
+    if (status) {
+      const lastBackup = state.lastBackupAt
+        ? new Date(state.lastBackupAt).toLocaleString('zh-TW')
+        : '尚未記錄完整備份';
+      status.textContent = `距上次完整備份後已保存 ${state.saveCountSinceBackup || 0} 次；上次備份：${lastBackup}`;
+    }
+
+    const modal = document.getElementById('backupReminderModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  async getBackupReminderSettings() {
+    const record = await this.db.getMetadata('backupReminderSettings');
+    return {
+      enabled: record?.value?.enabled !== false,
+      saveCountThreshold: Number(record?.value?.saveCountThreshold || 10),
+      dayThreshold: Number(record?.value?.dayThreshold || 7)
+    };
+  }
+
+  async getBackupReminderState() {
+    const record = await this.db.getMetadata('backupReminderState');
+    return record?.value || { saveCountSinceBackup: 0, lastBackupAt: null, lastPromptAt: null };
+  }
+
+  async saveBackupReminderSettings() {
+    const settings = {
+      enabled: document.getElementById('backupReminderEnabled')?.checked !== false,
+      saveCountThreshold: Math.max(1, Number(document.getElementById('backupReminderSaveCount')?.value || 10)),
+      dayThreshold: Math.max(1, Number(document.getElementById('backupReminderDays')?.value || 7))
+    };
+    await this.db.saveMetadata('backupReminderSettings', settings);
+    document.getElementById('backupReminderModal').style.display = 'none';
+    this.showToast('備份提醒設定已保存', { kind: 'success' });
+  }
+
+  async handleBackupReminderAfterSave() {
+    const settings = await this.getBackupReminderSettings();
+    if (!settings.enabled) return;
+
+    const state = await this.getBackupReminderState();
+    state.saveCountSinceBackup = (state.saveCountSinceBackup || 0) + 1;
+    const daysSinceBackup = state.lastBackupAt
+      ? (Date.now() - state.lastBackupAt) / 86400000
+      : Number.POSITIVE_INFINITY;
+    const shouldPrompt = state.saveCountSinceBackup >= settings.saveCountThreshold ||
+      daysSinceBackup >= settings.dayThreshold;
+    await this.db.saveMetadata('backupReminderState', state);
+
+    if (!shouldPrompt) return;
+    const confirmed = await dialogs.showConfirm({
+      title: '建議完整備份',
+      message: `距上次完整備份後已保存 ${state.saveCountSinceBackup} 次。是否現在建立完整備份？`,
+      confirmText: '完整備份',
+      cancelText: '稍後',
+      kind: 'warning'
+    });
+    state.lastPromptAt = Date.now();
+    await this.db.saveMetadata('backupReminderState', state);
+    if (confirmed) {
+      await this.importExportDialogs.showFullBackupDialog();
+    }
+  }
+
+  async resetBackupReminderAfterBackup() {
+    await this.db.saveMetadata('backupReminderState', {
+      saveCountSinceBackup: 0,
+      lastBackupAt: Date.now(),
+      lastPromptAt: null
+    });
   }
 
   /**

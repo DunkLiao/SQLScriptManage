@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQLScriptManage Smoke Test Checklist</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <main class="diff-page">
+    <section class="summary-panel">
+      <div class="version-meta">
+        <div class="title">Smoke Test Checklist</div>
+        <div>建議在 Chrome 或 Edge，以本機靜態伺服器開啟主頁後逐項驗證。</div>
+      </div>
+      <div class="version-meta">
+        <div class="title">啟動方式</div>
+        <div>python -m http.server 8000</div>
+        <div>或 npx serve .</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <h3>核心流程</h3>
+      </div>
+      <div class="card-body">
+        <label class="checkbox-label"><input type="checkbox"><span>建立專案並切換成功。</span></label>
+        <label class="checkbox-label"><input type="checkbox"><span>建立 SQL 腳本並切換成功。</span></label>
+        <label class="checkbox-label"><input type="checkbox"><span>輸入 SQL 後保存版本，版本列表出現新版本。</span></label>
+        <label class="checkbox-label"><input type="checkbox"><span>新增、編輯、刪除版本標籤後，版本列表與篩選同步更新。</span></label>
+        <label class="checkbox-label"><input type="checkbox"><span>釘選與取消釘選版本後，版本列表排序與詳情狀態正確。</span></label>
+        <label class="checkbox-label"><input type="checkbox"><span>使用 SQL 腳本搜尋，能依腳本名稱、版本描述、作者或標籤找到並切換。</span></label>
+        <label class="checkbox-label"><input type="checkbox"><span>開啟獨立 diff 頁，比對結果與版本資訊正常顯示。</span></label>
+        <label class="checkbox-label"><input type="checkbox"><span>完整備份下載成功，備份提醒狀態重設。</span></label>
+        <label class="checkbox-label"><input type="checkbox"><span>使用完整備份還原後，專案、腳本、版本、標籤與釘選狀態可回復。</span></label>
+        <label class="checkbox-label"><input type="checkbox"><span>使用非 JSON、缺欄位、checksum 錯誤或 contentHash 錯誤檔案，匯入/還原會被拒絕。</span></label>
+        <label class="checkbox-label"><input type="checkbox"><span>暫時阻斷網路或 CDN 時，依賴載入失敗訊息與重新載入入口可見。</span></label>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

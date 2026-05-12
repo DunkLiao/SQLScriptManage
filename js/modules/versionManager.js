@@ -192,7 +192,7 @@ class VersionManager {
       query.sortBy !== 'newest'
     );
 
-    if (hasQuery) {
+    if (hasQuery || await this.hasPinnedVersions(scriptId, projectId)) {
       return await this.getFilteredVersionPage(scriptId, projectId, {
         ...query,
         limit: options.limit || 50,
@@ -299,6 +299,12 @@ class VersionManager {
   sortVersions(versions, sortBy) {
     const textCompare = (a, b) => a.localeCompare(b, 'zh-Hant', { sensitivity: 'base' });
     versions.sort((a, b) => {
+      const pinnedCompare = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+      if (pinnedCompare) return pinnedCompare;
+      if (a.isPinned && b.isPinned) {
+        const pinnedAtCompare = (b.pinnedAt || 0) - (a.pinnedAt || 0);
+        if (pinnedAtCompare) return pinnedAtCompare;
+      }
       if (sortBy === 'oldest') return a.timestamp - b.timestamp;
       if (sortBy === 'authorAsc') {
         const authorCompare = textCompare(a.author || '', b.author || '');
@@ -311,6 +317,22 @@ class VersionManager {
         return tagCompare || b.timestamp - a.timestamp;
       }
       return b.timestamp - a.timestamp;
+    });
+  }
+
+  async hasPinnedVersions(scriptId, projectId = null) {
+    const versions = await this.db.getVersionsByScript(scriptId);
+    return versions.some(version => Boolean(version.isPinned) && (!projectId || version.projectId === projectId));
+  }
+
+  async togglePinned(versionId) {
+    const version = await this.db.getVersion(versionId);
+    if (!version) throw new Error('版本不存在');
+
+    const isPinned = !version.isPinned;
+    return await this.db.updateVersion(versionId, {
+      isPinned,
+      pinnedAt: isPinned ? Date.now() : null
     });
   }
 
@@ -436,6 +458,19 @@ class VersionManager {
     const saved = await this.db.saveTag(tagRecord);
     console.log('標籤已創建:', tagName, '->', versionId);
     return saved;
+  }
+
+  async updateTag(tagId, updates) {
+    const normalized = { ...updates };
+    if (normalized.tagName !== undefined) {
+      normalized.tagName = normalized.tagName.trim();
+      if (!normalized.tagName) throw new Error('標籤名稱不能為空');
+    }
+    return await this.db.updateTag(tagId, normalized);
+  }
+
+  async deleteTag(tagId) {
+    return await this.db.deleteTag(tagId);
   }
 
   /**
