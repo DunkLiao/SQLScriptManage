@@ -1354,6 +1354,15 @@ select {
   display: none;
 }
 
+#saveVersionDiffSummary {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+#saveVersionDiffSummary .impact-item span {
+  font-family: var(--mono-font);
+}
+
 .impact-title {
   margin: 0;
   color: var(--text-primary);

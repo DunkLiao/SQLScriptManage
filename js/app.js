@@ -667,7 +667,8 @@ class SQLVersionApp {
    * 顯示保存版本對話框
    */
   async showSaveVersionDialog() {
-    const sqlContent = this.monacoEditor ? this.monacoEditor.getValue().trim() : '';
+    const sqlRaw = this.monacoEditor ? this.monacoEditor.getValue() : '';
+    const sqlContent = sqlRaw.trim();
     
     // 檢查是否有內容
     if (!sqlContent) {
@@ -697,12 +698,12 @@ class SQLVersionApp {
     
     // 顯示目前 SQL 腳本與上一版本資訊
     const parentInfoDiv = document.getElementById('versionParentInfo');
+    const diffSummaryDiv = document.getElementById('saveVersionDiffSummary');
     if (parentInfoDiv) {
       try {
         const currentScript = this.scriptManager.getCurrentScript();
-        const latestVersion = currentScript
-          ? await this.db.getLatestVersionByScript(currentScript.scriptId)
-          : null;
+        const savePreview = await this.versionManager.getSavePreview(sqlRaw);
+        const latestVersion = savePreview.latestVersion;
         const scriptName = currentScript
           ? this.formatScriptDisplayName(currentScript.scriptName)
           : '(未選擇)';
@@ -720,9 +721,15 @@ class SQLVersionApp {
         note.appendChild(name);
         note.appendChild(latest);
         parentInfoDiv.appendChild(note);
+
+        this.renderSaveVersionDiffSummary(diffSummaryDiv, savePreview);
       } catch (error) {
         console.error('讀取 SQL 腳本資訊失敗:', error);
         parentInfoDiv.replaceChildren();
+        if (diffSummaryDiv) {
+          diffSummaryDiv.replaceChildren();
+          diffSummaryDiv.hidden = true;
+        }
       }
     }
     
@@ -738,6 +745,25 @@ class SQLVersionApp {
         newLabel.focus();
       }, 100);
     }
+  }
+
+  renderSaveVersionDiffSummary(container, savePreview) {
+    if (!container || !savePreview) return;
+
+    const { latestVersion, stats } = savePreview;
+    const previousLabel = latestVersion
+      ? (latestVersion.label || latestVersion.versionId.substring(0, 8))
+      : '第一個版本';
+    const changeText = stats.linesAdded === 0 && stats.linesRemoved === 0
+      ? '內容無變化'
+      : `+${stats.linesAdded} -${stats.linesRemoved}`;
+
+    dialogs.renderImpactSummary(container, '保存前差異摘要', [
+      { label: '比較基準', value: previousLabel },
+      { label: '新增行數', value: `+${stats.linesAdded}` },
+      { label: '刪除行數', value: `-${stats.linesRemoved}` },
+      { label: '變更狀態', value: changeText }
+    ]);
   }
 
   /**

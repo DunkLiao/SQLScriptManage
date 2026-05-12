@@ -33,13 +33,9 @@ class VersionManager {
   }
 
   /**
-   * 保存新版本
+   * 預覽保存新版本時會產生的差異統計。
    */
-  async saveVersion(sqlContent, label, description, author, createSnapshot = false) {
-    if (!label || !author) {
-      throw new Error('版本標籤和作者不能為空');
-    }
-
+  async getSavePreview(sqlContent) {
     const projectId = this.projectManager.getCurrentProjectId();
     if (!projectId) {
       throw new Error('未指定專案');
@@ -49,20 +45,37 @@ class VersionManager {
       throw new Error('未指定 SQL 腳本');
     }
 
-    // 1. 獲取該 SQL 腳本的最新版本內容（已規範化）
     const latestVersion = await this.db.getLatestVersionByScript(scriptId);
-    const latestContent = latestVersion 
+    const latestContent = latestVersion
       ? await this.getVersionContent(latestVersion.versionId)
       : '';
-
-    // 2. 規範化新 SQL 內容（確保一致性）
     const normalizedNewSQL = this.diffEngine.normalizeSql(sqlContent);
+    const { stats } = this.diffEngine.computeDiff(latestContent, normalizedNewSQL);
 
-    // 3. 計算差異（用於顯示和統計）
-    const { stats } = this.diffEngine.computeDiff(
-      latestContent,
-      normalizedNewSQL  // 使用規範化後的內容計算差異
-    );
+    return {
+      projectId,
+      scriptId,
+      latestVersion,
+      normalizedNewSQL,
+      stats
+    };
+  }
+
+  /**
+   * 保存新版本
+   */
+  async saveVersion(sqlContent, label, description, author, createSnapshot = false) {
+    if (!label || !author) {
+      throw new Error('版本標籤和作者不能為空');
+    }
+
+    const {
+      projectId,
+      scriptId,
+      latestVersion,
+      normalizedNewSQL,
+      stats
+    } = await this.getSavePreview(sqlContent);
 
     // 4. 計算規範化內容的哈希
     const contentHash = await this.diffEngine.computeHash(normalizedNewSQL);
