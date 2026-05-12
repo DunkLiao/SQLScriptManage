@@ -175,10 +175,142 @@ class VersionManager {
       return { versions: [], hasMore: false, nextCursor: null, total: 0 };
     }
 
+    const query = {
+      keyword: (options.keyword || '').trim(),
+      sortBy: options.sortBy || 'newest',
+      dateFrom: options.dateFrom || '',
+      dateTo: options.dateTo || '',
+      author: options.author || '',
+      tagName: options.tagName || ''
+    };
+    const hasQuery = Boolean(
+      query.keyword ||
+      query.dateFrom ||
+      query.dateTo ||
+      query.author ||
+      query.tagName ||
+      query.sortBy !== 'newest'
+    );
+
+    if (hasQuery) {
+      return await this.getFilteredVersionPage(scriptId, projectId, {
+        ...query,
+        limit: options.limit || 50,
+        offset: options.offset || 0
+      });
+    }
+
     return await this.db.getVersionPageByScript(scriptId, {
       projectId,
       limit: options.limit || 50,
       beforeTimestamp: options.beforeTimestamp
+    }).then(page => this.decorateVersionPageWithTags(page));
+  }
+
+  async getFilteredVersionPage(scriptId, projectId, options = {}) {
+    const limit = Math.max(1, options.limit || 50);
+    const offset = Math.max(0, options.offset || 0);
+    let versions = await this.db.getVersionsByScript(scriptId);
+    if (projectId) {
+      versions = versions.filter(version => version.projectId === projectId);
+    }
+
+    const tagsByVersion = await this.db.getTagsForVersionIds(versions.map(version => version.versionId));
+    versions = versions.map(version => ({
+      ...version,
+      displayTags: tagsByVersion[version.versionId] || []
+    }));
+
+    const startTime = this.parseDateStart(options.dateFrom);
+    const endTime = this.parseDateEnd(options.dateTo);
+    const keyword = (options.keyword || '').toLowerCase();
+
+    versions = versions.filter(version => {
+      if (startTime !== null && version.timestamp < startTime) return false;
+      if (endTime !== null && version.timestamp > endTime) return false;
+      if (options.author && version.author !== options.author) return false;
+      if (options.tagName && !version.displayTags.some(tag => tag.tagName === options.tagName)) return false;
+      if (!keyword) return true;
+
+      const tagText = version.displayTags.map(tag => tag.tagName).join(' ');
+      return [
+        version.description,
+        version.label,
+        version.author,
+        version.versionId,
+        tagText
+      ].some(value => (value || '').toLowerCase().includes(keyword));
+    });
+
+    this.sortVersions(versions, options.sortBy || 'newest');
+
+    const total = versions.length;
+    const pageVersions = versions.slice(offset, offset + limit);
+    const nextOffset = offset + pageVersions.length;
+
+    return {
+      versions: pageVersions,
+      hasMore: nextOffset < total,
+      nextCursor: nextOffset < total ? { offset: nextOffset } : null,
+      total
+    };
+  }
+
+  async decorateVersionPageWithTags(page) {
+    const tagsByVersion = await this.db.getTagsForVersionIds(page.versions.map(version => version.versionId));
+    return {
+      ...page,
+      versions: page.versions.map(version => ({
+        ...version,
+        displayTags: tagsByVersion[version.versionId] || []
+      }))
+    };
+  }
+
+  async getVersionFilterOptions(scriptId = null, projectId = null) {
+    const targetScriptId = scriptId || this.scriptManager?.getCurrentScriptId();
+    const targetProjectId = projectId || this.projectManager?.getCurrentProjectId();
+    if (!targetScriptId) {
+      return { authors: [], tags: [] };
+    }
+
+    const [authors, tags] = await Promise.all([
+      this.db.getVersionAuthorsByScript(targetScriptId, targetProjectId),
+      this.db.getTagNamesByScript(targetScriptId, targetProjectId)
+    ]);
+
+    return { authors, tags };
+  }
+
+  parseDateStart(value) {
+    if (!value) return null;
+    const [year, month, day] = value.split('-').map(Number);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+  }
+
+  parseDateEnd(value) {
+    if (!value) return null;
+    const [year, month, day] = value.split('-').map(Number);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
+  }
+
+  sortVersions(versions, sortBy) {
+    const textCompare = (a, b) => a.localeCompare(b, 'zh-Hant', { sensitivity: 'base' });
+    versions.sort((a, b) => {
+      if (sortBy === 'oldest') return a.timestamp - b.timestamp;
+      if (sortBy === 'authorAsc') {
+        const authorCompare = textCompare(a.author || '', b.author || '');
+        return authorCompare || b.timestamp - a.timestamp;
+      }
+      if (sortBy === 'tagAsc') {
+        const tagA = a.displayTags[0]?.tagName || '\uffff';
+        const tagB = b.displayTags[0]?.tagName || '\uffff';
+        const tagCompare = textCompare(tagA, tagB);
+        return tagCompare || b.timestamp - a.timestamp;
+      }
+      return b.timestamp - a.timestamp;
     });
   }
 
@@ -395,33 +527,11 @@ class VersionManager {
    * 搜尋版本（按 SQL 描述）
    */
   async searchVersions(keyword) {
-    const lowerKeyword = keyword.toLowerCase();
-    const matches = [];
-    let beforeTimestamp = Number.MAX_SAFE_INTEGER;
-    let hasMore = true;
-
-    while (hasMore) {
-      const page = await this.getVersionPage({
-        limit: 100,
-        beforeTimestamp
-      });
-
-      for (const version of page.versions) {
-        if (
-          (version.description || '').toLowerCase().includes(lowerKeyword) ||
-          (version.label || '').toLowerCase().includes(lowerKeyword) ||
-          (version.author || '').toLowerCase().includes(lowerKeyword)
-        ) {
-          matches.push(version);
-        }
-      }
-
-      hasMore = page.hasMore;
-      beforeTimestamp = page.nextCursor?.beforeTimestamp;
-      if (!beforeTimestamp) break;
-    }
-
-    return matches;
+    const page = await this.getVersionPage({
+      keyword,
+      limit: Number.MAX_SAFE_INTEGER
+    });
+    return page.versions;
   }
 
   /**

@@ -201,6 +201,8 @@ select {
 .form-input,
 .form-textarea,
 .search-input,
+.filter-input,
+.filter-select,
 .info-input {
   min-width: 0;
   color: var(--text-primary);
@@ -234,6 +236,8 @@ select {
 .form-input:focus,
 .form-textarea:focus,
 .search-input:focus,
+.filter-input:focus,
+.filter-select:focus,
 .info-input:focus {
   outline: none;
   border-color: var(--primary);
@@ -550,8 +554,8 @@ select {
 }
 
 .card-version-tree {
-  flex: 1 1 58%;
-  min-height: 280px;
+  flex: 1 1 68%;
+  min-height: 360px;
   display: flex;
   flex-direction: column;
 }
@@ -579,9 +583,58 @@ select {
   font-size: 13px;
 }
 
+.version-filters {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.filter-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.filter-control {
+  min-width: 0;
+}
+
+.filter-control span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.filter-input,
+.filter-select {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.btn-filter-reset {
+  align-self: end;
+  width: 100%;
+  min-height: 30px;
+}
+
+.version-filter-summary {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .version-tree {
   flex: 1;
-  min-height: 0;
+  min-height: 96px;
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
@@ -659,6 +712,28 @@ select {
   font-size: 11px;
 }
 
+.version-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0 0 26px;
+}
+
+.version-tag {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 7px;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .version-load-more {
   width: calc(100% - 20px);
   min-height: 36px;
@@ -682,8 +757,8 @@ select {
 }
 
 .card-detail {
-  flex: 1 1 42%;
-  min-height: 220px;
+  flex: 1 1 32%;
+  min-height: 180px;
   display: flex;
   flex-direction: column;
 }
@@ -1549,7 +1624,8 @@ select {
 
   .stats-grid,
   .help-topic-grid,
-  .detail-row {
+  .detail-row,
+  .filter-row {
     grid-template-columns: 1fr;
   }
 }

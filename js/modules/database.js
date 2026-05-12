@@ -558,6 +558,19 @@ class DatabaseManager {
     });
   }
 
+  async getTagsForVersionIds(versionIds) {
+    if (!Array.isArray(versionIds) || versionIds.length === 0) return {};
+
+    const entries = await Promise.all(
+      versionIds.map(async (versionId) => {
+        const tags = await this.getVersionTags(versionId);
+        tags.sort((a, b) => (a.tagName || '').localeCompare(b.tagName || '', 'zh-Hant', { sensitivity: 'base' }));
+        return [versionId, tags];
+      })
+    );
+    return Object.fromEntries(entries);
+  }
+
   /**
    * 清空所有數據
    */
@@ -951,6 +964,32 @@ class DatabaseManager {
       };
       request.onerror = () => reject(request.error);
     });
+  }
+
+  async getVersionAuthorsByScript(scriptId, projectId = null) {
+    const versions = await this.getVersionsByScript(scriptId);
+    const authors = versions
+      .filter(version => !projectId || version.projectId === projectId)
+      .map(version => (version.author || '').trim())
+      .filter(Boolean);
+
+    return Array.from(new Set(authors))
+      .sort((a, b) => a.localeCompare(b, 'zh-Hant', { sensitivity: 'base' }));
+  }
+
+  async getTagNamesByScript(scriptId, projectId = null) {
+    const versions = await this.getVersionsByScript(scriptId);
+    const targetVersionIds = versions
+      .filter(version => !projectId || version.projectId === projectId)
+      .map(version => version.versionId);
+    const tagsByVersion = await this.getTagsForVersionIds(targetVersionIds);
+    const tagNames = Object.values(tagsByVersion)
+      .flat()
+      .map(tag => (tag.tagName || '').trim())
+      .filter(Boolean);
+
+    return Array.from(new Set(tagNames))
+      .sort((a, b) => a.localeCompare(b, 'zh-Hant', { sensitivity: 'base' }));
   }
 
   async getVersionCountByScript(scriptId, projectId = null) {

@@ -9,6 +9,13 @@ class VersionTreeController {
     this.treeContainer = options.treeContainer;
     this.searchInput = options.searchInput;
     this.searchButton = options.searchButton;
+    this.sortSelect = options.sortSelect;
+    this.dateFromInput = options.dateFromInput;
+    this.dateToInput = options.dateToInput;
+    this.authorFilter = options.authorFilter;
+    this.tagFilter = options.tagFilter;
+    this.resetFiltersButton = options.resetFiltersButton;
+    this.filterSummary = options.filterSummary;
     this.contextMenu = options.contextMenu;
     this.contextCompare = options.contextCompare;
     this.titleElement = options.titleElement;
@@ -22,7 +29,6 @@ class VersionTreeController {
     this.nextCursor = null;
     this.hasMore = false;
     this.totalCount = 0;
-    this.isSearching = false;
     this.currentKeyword = '';
     this.loadMoreButton = null;
   }
@@ -36,6 +42,15 @@ class VersionTreeController {
       this.searchInput.addEventListener('keypress', (event) => {
         if (event.key === 'Enter') this.searchFromInput();
       });
+    }
+
+    const reloadOnChange = () => this.reloadCurrentPage();
+    [this.sortSelect, this.dateFromInput, this.dateToInput, this.authorFilter, this.tagFilter]
+      .filter(Boolean)
+      .forEach(element => element.addEventListener('change', reloadOnChange));
+
+    if (this.resetFiltersButton) {
+      this.resetFiltersButton.addEventListener('click', () => this.resetFilters());
     }
 
     if (this.contextMenu) {
@@ -57,8 +72,7 @@ class VersionTreeController {
 
   async load() {
     try {
-      this.isSearching = false;
-      this.currentKeyword = '';
+      await this.loadFilterOptions();
       await this.loadFirstPage();
     } catch (error) {
       this.handleError('載入版本列表失敗：' + error.message);
@@ -70,52 +84,61 @@ class VersionTreeController {
   }
 
   async searchFromInput() {
-    const keyword = this.searchInput ? this.searchInput.value.trim() : '';
-    await this.search(keyword);
+    await this.reloadCurrentPage();
   }
 
   async search(keyword) {
-    if (!keyword) {
-      await this.load();
-      return;
+    if (this.searchInput) {
+      this.searchInput.value = keyword || '';
     }
+    await this.reloadCurrentPage();
+  }
 
+  async loadFilterOptions() {
     try {
-      this.isSearching = true;
-      this.currentKeyword = keyword;
-      this.setLoadingState('搜尋中...');
-      const results = await this.versionManager.searchVersions(keyword);
-      this.versions = results;
-      this.hasMore = false;
-      this.nextCursor = null;
-      this.totalCount = results.length;
-      this.renderVersions(results, '未找到相符的版本');
-      this.updateTitle(results.length, results.length);
+      const options = await this.versionManager.getVersionFilterOptions();
+      this.replaceSelectOptions(this.authorFilter, '全部作者', options.authors, this.authorFilter?.value || '');
+      this.replaceSelectOptions(this.tagFilter, '全部標籤', options.tags, this.tagFilter?.value || '');
     } catch (error) {
-      this.handleError('搜尋失敗：' + error.message);
+      this.handleError('載入篩選選項失敗：' + error.message);
     }
   }
 
   async loadFirstPage() {
     this.setLoadingState('載入版本中...');
-    const page = await this.versionManager.getVersionPage({ limit: this.pageSize });
+    const page = await this.versionManager.getVersionPage({
+      ...this.getQueryOptions(),
+      limit: this.pageSize
+    });
     this.versions = page.versions;
     this.nextCursor = page.nextCursor;
     this.hasMore = page.hasMore;
     this.totalCount = page.total;
-    this.renderVersions(this.versions, '此 SQL 腳本暫無版本');
+    const emptyMessage = this.hasActiveFilters() ? '未找到符合條件的版本' : '此 SQL 腳本暫無版本';
+    this.renderVersions(this.versions, emptyMessage);
     this.updateTitle(this.versions.length, this.totalCount);
+    this.updateFilterSummary();
     console.log('版本列表加載：', this.versions.map(v => v.versionId));
   }
 
+  async reloadCurrentPage() {
+    try {
+      await this.loadFirstPage();
+    } catch (error) {
+      this.handleError('載入版本列表失敗：' + error.message);
+    }
+  }
+
   async loadMore() {
-    if (!this.hasMore || !this.nextCursor || this.isSearching) return;
+    if (!this.hasMore || !this.nextCursor) return;
 
     try {
       this.setLoadMoreBusy(true);
       const page = await this.versionManager.getVersionPage({
+        ...this.getQueryOptions(),
         limit: this.pageSize,
-        beforeTimestamp: this.nextCursor.beforeTimestamp
+        beforeTimestamp: this.nextCursor.beforeTimestamp,
+        offset: this.nextCursor.offset
       });
       this.versions.push(...page.versions);
       this.nextCursor = page.nextCursor;
@@ -190,7 +213,7 @@ class VersionTreeController {
       this.loadMoreButton = null;
     }
 
-    if (!this.hasMore || this.isSearching) return;
+    if (!this.hasMore) return;
 
     const button = document.createElement('button');
     button.type = 'button';
@@ -240,6 +263,21 @@ class VersionTreeController {
 
     item.appendChild(header);
     item.appendChild(detail);
+
+    if (Array.isArray(version.displayTags) && version.displayTags.length > 0) {
+      const tags = document.createElement('div');
+      tags.className = 'version-tags';
+      for (const tag of version.displayTags) {
+        const tagEl = document.createElement('span');
+        tagEl.className = 'version-tag';
+        tagEl.textContent = tag.tagName;
+        if (tag.color) {
+          tagEl.style.borderColor = tag.color;
+        }
+        tags.appendChild(tagEl);
+      }
+      item.appendChild(tags);
+    }
 
     item.addEventListener('click', () => {
       this.setSelectedVersion(version.versionId);
@@ -306,8 +344,76 @@ class VersionTreeController {
     const countText = totalCount > loadedCount
       ? `${loadedCount} / ${totalCount}`
       : `${loadedCount}`;
-    const searchText = this.isSearching ? ' 搜尋結果' : '';
-    this.titleElement.textContent = `版本列表${scriptName}${searchText}（${countText}）`;
+    const filterText = this.hasActiveFilters() ? ' 篩選結果' : '';
+    this.titleElement.textContent = `版本列表${scriptName}${filterText}（${countText}）`;
+  }
+
+  updateFilterSummary() {
+    if (!this.filterSummary) return;
+    const filters = [];
+    const options = this.getQueryOptions();
+    if (options.keyword) filters.push(`搜尋「${options.keyword}」`);
+    if (options.author) filters.push(`作者「${options.author}」`);
+    if (options.tagName) filters.push(`標籤「${options.tagName}」`);
+    if (options.dateFrom || options.dateTo) {
+      filters.push(`日期 ${options.dateFrom || '不限'} 至 ${options.dateTo || '不限'}`);
+    }
+
+    const prefix = filters.length > 0 ? filters.join('、') : '顯示全部版本';
+    this.filterSummary.textContent = `${prefix}，目前顯示 ${this.versions.length} / ${this.totalCount}`;
+  }
+
+  getQueryOptions() {
+    this.currentKeyword = this.searchInput ? this.searchInput.value.trim() : '';
+    return {
+      keyword: this.currentKeyword,
+      sortBy: this.sortSelect?.value || 'newest',
+      dateFrom: this.dateFromInput?.value || '',
+      dateTo: this.dateToInput?.value || '',
+      author: this.authorFilter?.value || '',
+      tagName: this.tagFilter?.value || ''
+    };
+  }
+
+  hasActiveFilters() {
+    const options = this.getQueryOptions();
+    return Boolean(
+      options.keyword ||
+      options.dateFrom ||
+      options.dateTo ||
+      options.author ||
+      options.tagName ||
+      options.sortBy !== 'newest'
+    );
+  }
+
+  resetFilters() {
+    if (this.searchInput) this.searchInput.value = '';
+    if (this.sortSelect) this.sortSelect.value = 'newest';
+    if (this.dateFromInput) this.dateFromInput.value = '';
+    if (this.dateToInput) this.dateToInput.value = '';
+    if (this.authorFilter) this.authorFilter.value = '';
+    if (this.tagFilter) this.tagFilter.value = '';
+    this.reloadCurrentPage();
+  }
+
+  replaceSelectOptions(select, placeholder, values, currentValue) {
+    if (!select) return;
+    select.replaceChildren();
+
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = placeholder;
+    select.appendChild(empty);
+
+    for (const value of values) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
+    }
+
+    select.value = values.includes(currentValue) ? currentValue : '';
   }
 
   handleError(message) {

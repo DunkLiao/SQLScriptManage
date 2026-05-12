@@ -199,10 +199,49 @@
             <input 
               type="text" 
               id="searchVersions" 
-              placeholder="搜尋 SQL 描述..."
+              placeholder="搜尋標籤、描述或作者..."
               class="search-input"
             />
             <button class="btn-search" id="btnSearch" title="搜尋">🔍</button>
+          </div>
+          <div class="version-filters" aria-label="版本列表篩選">
+            <div class="filter-row">
+              <label class="filter-control" for="versionSort">
+                <span>排序</span>
+                <select id="versionSort" class="filter-select">
+                  <option value="newest">最新優先</option>
+                  <option value="oldest">最舊優先</option>
+                  <option value="tagAsc">標籤 A-Z</option>
+                  <option value="authorAsc">作者 A-Z</option>
+                </select>
+              </label>
+              <label class="filter-control" for="versionAuthorFilter">
+                <span>作者</span>
+                <select id="versionAuthorFilter" class="filter-select">
+                  <option value="">全部作者</option>
+                </select>
+              </label>
+            </div>
+            <div class="filter-row">
+              <label class="filter-control" for="versionDateFrom">
+                <span>起始日 yyyy/mm/dd</span>
+                <input id="versionDateFrom" class="filter-input" type="date" />
+              </label>
+              <label class="filter-control" for="versionDateTo">
+                <span>結束日 yyyy/mm/dd</span>
+                <input id="versionDateTo" class="filter-input" type="date" />
+              </label>
+            </div>
+            <div class="filter-row">
+              <label class="filter-control" for="versionTagFilter">
+                <span>標籤</span>
+                <select id="versionTagFilter" class="filter-select">
+                  <option value="">全部標籤</option>
+                </select>
+              </label>
+              <button class="btn btn-ghost btn-filter-reset" id="btnResetVersionFilters" type="button">重設</button>
+            </div>
+            <div class="version-filter-summary" id="versionFilterSummary">顯示全部版本</div>
           </div>
           <div class="version-tree" id="versionTree">
             <!-- 版本項動態插入 -->
